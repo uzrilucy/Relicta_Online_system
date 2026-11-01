@@ -203,7 +203,7 @@ function fromUI(){
 function button(label,fn,parent=panel){const b=element('button',label,{type:'button',class:'menu_button'});b.addEventListener('click',fn);parent.append(b);return b;}
 function mount(){
     const host=document.querySelector('#extensions_settings')??document.querySelector('#extensions_settings2');if(!host)return;
-    panel=element('details',null,{class:'ro-panel'});panel.append(element('summary','Relicta · 플레이 세션 v0.5'));
+    panel=element('details',null,{class:'ro-panel'});panel.append(element('summary','Relicta · 플레이 세션 v0.6'));
     panel.append(element('p','현재 채팅의 위치·명부·플레이어·인연 기록을 하나의 세션으로 관리합니다.',{class:'ro-note'}));
     check('enabled','이 채팅에서 사용');
     options(input('loc','현재 위치',true),Object.values(data.locations).map(l=>[l.code,l.label]),'RN_START');
