@@ -1,0 +1,283 @@
+{
+  "items": {
+    "branch": {
+      "id": "branch",
+      "name": "부러진 나뭇가지",
+      "grade": "trash",
+      "kind": "weapon",
+      "slot": "weapon",
+      "attack": 1,
+      "weight": 30
+    },
+    "applecore": {
+      "id": "applecore",
+      "name": "먹다 남은 사과 심",
+      "grade": "trash",
+      "kind": "junk",
+      "weight": 30,
+      "note": "먹을 수 있으나 배탈 위험이 있다."
+    },
+    "pebble": {
+      "id": "pebble",
+      "name": "금 간 조약돌",
+      "grade": "trash",
+      "kind": "junk",
+      "weight": 20
+    },
+    "ribbon": {
+      "id": "ribbon",
+      "name": "색이 바랜 리본",
+      "grade": "trash",
+      "kind": "junk",
+      "weight": 20
+    },
+    "steel_sword": {
+      "id": "steel_sword",
+      "name": "날카로운 강철검",
+      "grade": "normal",
+      "kind": "weapon",
+      "slot": "weapon",
+      "attack": 12,
+      "weight": 30
+    },
+    "short_bow": {
+      "id": "short_bow",
+      "name": "사냥꾼의 단궁",
+      "grade": "normal",
+      "kind": "weapon",
+      "slot": "weapon",
+      "attack": 10,
+      "ranged": true,
+      "weight": 20
+    },
+    "leather": {
+      "id": "leather",
+      "name": "튼튼한 가죽 갑옷",
+      "grade": "normal",
+      "kind": "armor",
+      "slot": "armor",
+      "defense": 5,
+      "weight": 20
+    },
+    "mana": {
+      "id": "mana",
+      "name": "쓴맛 마나 포션",
+      "grade": "normal",
+      "kind": "consumable",
+      "mp": 30,
+      "weight": 15
+    },
+    "healing": {
+      "id": "healing",
+      "name": "붉은 회복 포션",
+      "grade": "normal",
+      "kind": "consumable",
+      "hp": 40,
+      "weight": 10
+    },
+    "bait": {
+      "id": "bait",
+      "name": "마수 미끼용 고기",
+      "grade": "normal",
+      "kind": "material",
+      "weight": 5
+    },
+    "blood_sword": {
+      "id": "blood_sword",
+      "name": "오크 족장의 피검",
+      "grade": "high",
+      "kind": "weapon",
+      "slot": "weapon",
+      "attack": 45,
+      "weight": 30
+    },
+    "guard": {
+      "id": "guard",
+      "name": "청람의 흉갑",
+      "grade": "high",
+      "kind": "armor",
+      "slot": "armor",
+      "defense": 20,
+      "weight": 25
+    },
+    "sen_ring": {
+      "id": "sen_ring",
+      "name": "고요한 감각의 반지",
+      "grade": "high",
+      "kind": "accessory",
+      "slot": "accessory",
+      "sen": 5,
+      "weight": 20
+    },
+    "stat_elixir": {
+      "id": "stat_elixir",
+      "name": "영구 스탯 +1 영약",
+      "grade": "high",
+      "kind": "stat",
+      "points": 1,
+      "weight": 15
+    },
+    "heal_shard": {
+      "id": "heal_shard",
+      "name": "광역 치유 꿈조각",
+      "grade": "high",
+      "kind": "shard",
+      "skillId": "wide_heal",
+      "weight": 1
+    },
+    "edge_shard": {
+      "id": "edge_shard",
+      "name": "검기 꿈조각",
+      "grade": "high",
+      "kind": "shard",
+      "skillId": "sword_aura",
+      "weight": 1
+    },
+    "fire_shard": {
+      "id": "fire_shard",
+      "name": "화염 꿈조각",
+      "grade": "high",
+      "kind": "shard",
+      "skillId": "fire",
+      "weight": 1
+    },
+    "shield_shard": {
+      "id": "shield_shard",
+      "name": "빛의 방패 꿈조각",
+      "grade": "high",
+      "kind": "shard",
+      "skillId": "light_shield",
+      "weight": 1
+    },
+    "gem": {
+      "id": "gem",
+      "name": "맑은 에테르 보석",
+      "grade": "high",
+      "kind": "material",
+      "weight": 6
+    },
+    "sky_deed": {
+      "id": "sky_deed",
+      "name": "하늘 영토 증서",
+      "grade": "divine",
+      "kind": "deed",
+      "weight": 1
+    },
+    "dragon": {
+      "id": "dragon",
+      "name": "신화급 용의 알",
+      "grade": "divine",
+      "kind": "pet",
+      "weight": 1,
+      "note": "부화와 인연은 서사로 진행한다. 자동 전투 지원 수치는 별도 설정한다."
+    },
+    "star_staff": {
+      "id": "star_staff",
+      "name": "별무리를 가르는 지팡이",
+      "grade": "divine",
+      "kind": "weapon",
+      "slot": "weapon",
+      "attack": 30000,
+      "weight": 1,
+      "note": "세계에 영향을 줄 수 있는 신급 유물. 광역·환경 결과는 GM이 설정에 맞게 다룬다."
+    }
+  },
+  "skills": {
+    "wide_heal": {
+      "id": "wide_heal",
+      "name": "광역 치유",
+      "type": "heal",
+      "power": 65,
+      "mp": 18,
+      "cooldown": 3,
+      "note": "주변 아군을 치유한다. 기본 판정기는 플레이어 HP를 계산하고 아군 효과는 서사에 반영한다."
+    },
+    "sword_aura": {
+      "id": "sword_aura",
+      "name": "검기",
+      "type": "damage",
+      "power": 35,
+      "mp": 10,
+      "cooldown": 1,
+      "physical": true
+    },
+    "fire": {
+      "id": "fire",
+      "name": "화염",
+      "type": "damage",
+      "power": 45,
+      "mp": 14,
+      "cooldown": 2,
+      "physical": false
+    },
+    "light_shield": {
+      "id": "light_shield",
+      "name": "빛의 방패",
+      "type": "shield",
+      "power": 25,
+      "mp": 12,
+      "cooldown": 3,
+      "turns": 3
+    }
+  },
+  "monsters": {
+    "wolf": {
+      "id": "wolf",
+      "name": "숲의 마수",
+      "level": 1,
+      "hp": 45,
+      "attack": 10,
+      "defense": 1,
+      "agi": 3,
+      "exp": 35,
+      "gold": 20,
+      "kind": "monster"
+    },
+    "boar": {
+      "id": "boar",
+      "name": "돌가죽 멧돼지",
+      "level": 3,
+      "hp": 100,
+      "attack": 18,
+      "defense": 6,
+      "agi": 2,
+      "exp": 80,
+      "gold": 45,
+      "kind": "monster"
+    },
+    "mimic": {
+      "id": "mimic",
+      "name": "유적 미믹",
+      "level": 8,
+      "hp": 240,
+      "attack": 35,
+      "defense": 10,
+      "agi": 10,
+      "exp": 250,
+      "gold": 120,
+      "kind": "monster"
+    }
+  },
+  "events": [
+    {
+      "id": "pk",
+      "name": "수상한 추적자",
+      "note": "접근하는 솜니움의 의도는 아직 확인되지 않았다. 자동 피해나 전투 개시는 없다."
+    },
+    {
+      "id": "beast",
+      "name": "희귀 마수의 흔적",
+      "note": "주변 환경에 맞는 마수 흔적이 발견된다."
+    },
+    {
+      "id": "meeting",
+      "name": "낯선 발소리",
+      "note": "지역 후보에 맞는 조우 가능성. 인물을 자동으로 소환하지 않는다."
+    },
+    {
+      "id": "trap",
+      "name": "감춰진 함정",
+      "note": "LUK 기반 회피 판정을 사용할 수 있다. 결과 전 자동 피해를 주지 않는다."
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "version": "0.4.0-balance-draft",
+  "status": "새 수치 산식·세부 확률은 조정 가능한 구현 초안. 기존 확정 설정과 구분한다.",
+  "expFactor": 50,
+  "hpBase": 100,
+  "hpPerCon": 12,
+  "hpPerLevel": 5,
+  "mpBase": 40,
+  "mpPerInt": 8,
+  "mpPerLevel": 3,
+  "attackBase": 8,
+  "attackPerStr": 2,
+  "agiReductionScale": 100,
+  "agiReductionCap": 0.65,
+  "evasionScale": 150,
+  "evasionCap": 0.45,
+  "senCostFactor": 0.01,
+  "criticalBase": 0.05,
+  "criticalBonusCap": 0.15,
+  "gachaCost": 30,
+  "gradeTotal": 100000000,
+  "gachaWeights": [
+    [
+      "divine",
+      50
+    ],
+    [
+      "high",
+      4000000
+    ],
+    [
+      "normal",
+      30000000
+    ],
+    [
+      "trash",
+      65999950
+    ]
+  ],
+  "questWeights": [
+    [
+      "divine",
+      50
+    ],
+    [
+      "high",
+      4000000
+    ],
+    [
+      "normal",
+      30000000
+    ],
+    [
+      "trash",
+      65999950
+    ]
+  ],
+  "encounterChance": 0.15,
+  "deathExpRatio": 0.5,
+  "reviveDiamonds": 1000,
+  "reviveGold": 10000000,
+  "levelDownPolicy": "retain-earned-points-no-repeat-grants",
+  "maxBatchPulls": 10,
+  "auctionTax": 0.3
+}
