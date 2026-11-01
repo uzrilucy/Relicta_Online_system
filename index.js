@@ -2,12 +2,13 @@ import { getContext } from '../../../extensions.js';
 import { directory, allowed, parsePlan, applySceneProposal, plannerPrompt } from './router.mjs';
 import {seed,prepareState,applyGameAction,gameTextAction,gameSnapshot,validateRules} from './engine.mjs';
 import {statusHTML,bindStatus} from './status-ui.mjs';
+import {dreamteoFromEntries,stripDreamteo,cleanHistory,withDreamteoPolicy,textDreamteoPolicy} from './presentation.mjs';
 import { initialSession, normalizeSession, world, fingerprint, parseProposal, applyProposal, authorAction, snapshot, renderSession, explicitUserAction, validateAuthorState } from './session.mjs';
 
 const KEY='relicta_session_v04',PROMPT='relicta_session_v04';
 const LEGACY_KEY='relicta_session_v03',LEGACY_PROMPT='relicta_session_v03';
 let data,rules,catalog,pending,panel,loadingError;
-const flights=new Map();
+const flights=new Map(),presentation=new Map();
 const copy=x=>JSON.parse(JSON.stringify(x));
 const contextId=ctx=>`${ctx.characterId??''}:${ctx.groupId??''}:${ctx.getCurrentChatId?.()??''}`;
 async function loadData(){
@@ -46,9 +47,20 @@ function setPrompt(state){
 async function persistChat(){try{await getContext().saveChat?.();}catch(e){console.warn('[Relicta] Chat snapshot save failed',e);}}
 function assistantIndex(){const chat=getContext().chat;for(let i=chat.length-1;i>=0;i--)if(!chat[i].is_user&&!chat[i].is_system)return i;return -1;}
 
+function applyDisplayPolicy(message,index){
+    const ctx=getContext(),flight=flights.get(contextId(ctx));
+    const isFresh=!!flight&&index>=flight.start&&typeof flight.dreamteo==='boolean';
+    const on=isFresh?flight.dreamteo:message.extra?.relicta05_ui?.dreamteo===true;
+    message.extra??={};const prior=message.extra.relicta05_ui;
+    const clean=on?message.mes:stripDreamteo(message.mes);
+    message.extra.relicta05_ui={dreamteo:on,ownsDisplay:clean!==message.mes};
+    if(clean!==message.mes){message.extra.display_text=clean;ctx.updateMessageBlock?.(index,message);}
+    else if(prior?.ownsDisplay){delete message.extra.display_text;ctx.updateMessageBlock?.(index,message);}
+}
 function syncMessage(index=assistantIndex()){
     const ctx=getContext(),message=ctx.chat[index];
     if(!message||message.is_user||message.is_system||!current().enabled)return {ok:false,error:'not-assistant'};
+    applyDisplayPolicy(message,index);
     const hash=fingerprint(message.mes),existing=message.extra?.relicta04;
     if(existing?.hash===hash){return {ok:true,state:current(),duplicate:true};}
     const flight=flights.get(contextId(ctx));
@@ -110,6 +122,7 @@ globalThis.relictaSessionInterceptor=async function(_chat,_contextSize,_abort,ty
     try{
         await loadData();let state=current();
         if(!state.enabled){clearPrompt();return;}
+        presentation.delete(contextId(getContext()));
         if(['quiet','impersonate'].includes(type))return;
         const id=contextId(getContext()),index=assistantIndex(),last=getContext().chat[index],rec=last?.extra?.relicta04;
         // A regenerated/swiped answer starts from its original pre-answer state.
@@ -119,7 +132,7 @@ globalThis.relictaSessionInterceptor=async function(_chat,_contextSize,_abort,ty
         if(state.preflight){
             try{
                 const ctx=getContext();
-                const answer=await ctx.generateRaw({systemPrompt:'Select a fictional scene and actual cast; JSON only. Do not change worlds or grant progress.',prompt:plannerPrompt(state,data,ctx.chat),responseLength:220,trimNames:false});
+                const answer=await ctx.generateRaw({systemPrompt:'Select a fictional scene and actual cast; JSON only. Do not change worlds or grant progress.',prompt:plannerPrompt(state,data,cleanHistory(ctx.chat)),responseLength:220,trimNames:false});
                 if(id!==contextId(getContext()))return;
                 const plan=parsePlan(answer);
                 if(!plan)throw new Error('Invalid plan');
@@ -128,7 +141,7 @@ globalThis.relictaSessionInterceptor=async function(_chat,_contextSize,_abort,ty
                 const changed=proposed.loc!==state.loc||proposed.event!==state.event;
                 state=normalizeSession({...state,loc:proposed.loc,event:proposed.event,cast:proposed.cast,extras:proposed.extras,place:proposed.loc===state.loc?state.place:''},data);
                 if(changed){
-                    const selected=parsePlan(await ctx.generateRaw({systemPrompt:'Select actual cast. Keep supplied loc/event fixed. JSON only.',prompt:plannerPrompt(state,data,ctx.chat),responseLength:220,trimNames:false}));
+                    const selected=parsePlan(await ctx.generateRaw({systemPrompt:'Select actual cast. Keep supplied loc/event fixed. JSON only.',prompt:plannerPrompt(state,data,cleanHistory(ctx.chat)),responseLength:220,trimNames:false}));
                     if(id!==contextId(getContext()))return;
                     if(selected?.loc!==state.loc||selected?.event!==state.event)throw new Error('Invalid target cast');
                     const routed=applySceneProposal(state,selected,data);state=normalizeSession({...state,cast:routed.cast},data);
@@ -136,8 +149,11 @@ globalThis.relictaSessionInterceptor=async function(_chat,_contextSize,_abort,ty
             }catch(e){state=beforePlan;console.warn('[Relicta] Preflight fallback',e);globalThis.toastr?.warning('사전 선택 실패: 현재 세션 기록을 유지합니다.');}
         }
         if(id!==contextId(getContext()))return;
+        // Work on copied prompt messages; retain the original saved board history.
+        if(Array.isArray(_chat)){const clean=cleanHistory(_chat);_chat.splice(0,_chat.length,...clean);}
+        presentation.set(id,{enabled:false,awaiting:true}); // Re-evaluate the linked WI on every generation.
         const rendered=setPrompt(state);save(rendered.state);
-        flights.set(id,{before:copy(rendered.state),start:['regenerate','swipe','continue'].includes(type)?Math.max(0,index):getContext().chat.length});
+        flights.set(id,{before:copy(rendered.state),dreamteo:false,start:['regenerate','swipe','continue'].includes(type)?Math.max(0,index):getContext().chat.length});
         refresh();
     }catch(e){clearPrompt();console.error('[Relicta] Session generation failed',e);globalThis.toastr?.error('렐릭타 세션 주입에 실패했습니다. 확장 설정을 확인해주세요.');}
 };
@@ -187,7 +203,7 @@ function fromUI(){
 function button(label,fn,parent=panel){const b=element('button',label,{type:'button',class:'menu_button'});b.addEventListener('click',fn);parent.append(b);return b;}
 function mount(){
     const host=document.querySelector('#extensions_settings')??document.querySelector('#extensions_settings2');if(!host)return;
-    panel=element('details',null,{class:'ro-panel'});panel.append(element('summary','Relicta · 플레이 세션 v0.4'));
+    panel=element('details',null,{class:'ro-panel'});panel.append(element('summary','Relicta · 플레이 세션 v0.5'));
     panel.append(element('p','현재 채팅의 위치·명부·플레이어·인연 기록을 하나의 세션으로 관리합니다.',{class:'ro-note'}));
     check('enabled','이 채팅에서 사용');
     options(input('loc','현재 위치',true),Object.values(data.locations).map(l=>[l.code,l.label]),'RN_START');
@@ -243,7 +259,12 @@ async function initialize(){
     try{
         await loadData();store();mount();const ctx=getContext();
         const on=(name,fn)=>{if(ctx.eventTypes[name])ctx.eventSource.on(ctx.eventTypes[name],fn);};
-        on('CHAT_CHANGED',()=>{clearPrompt();store();setPrompt(current());refresh();});
+        on('CHAT_CHANGED',()=>{presentation.delete(contextId(getContext()));flights.delete(contextId(getContext()));clearPrompt();store();setPrompt(current());refresh();});
+        on('WORLD_INFO_ACTIVATED',entries=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting){p.enabled=dreamteoFromEntries(entries);const f=flights.get(contextId(getContext()));if(f)f.dreamteo=p.enabled;}});
+        on('CHAT_COMPLETION_PROMPT_READY',event=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting&&current().enabled&&Array.isArray(event.chat))event.chat=withDreamteoPolicy(event.chat,p.enabled);});
+        on('GENERATE_AFTER_COMBINE_PROMPTS',event=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting&&current().enabled&&typeof event.prompt==='string')event.prompt=textDreamteoPolicy(event.prompt,p.enabled);});
+        on('GENERATE_AFTER_DATA',()=>{const p=presentation.get(contextId(getContext()));if(p)p.awaiting=false;});
+        on('GENERATION_STOPPED',()=>{const p=presentation.get(contextId(getContext()));if(p)p.awaiting=false;});
         const received=async index=>{if(!current().enabled)return;syncMessage(Number.isInteger(index)?index:assistantIndex());setPrompt(current());refresh();await persistChat();};
         on('MESSAGE_RECEIVED',received);on('CHARACTER_MESSAGE_RENDERED',received);
         on('MESSAGE_SWIPED',async()=>{const i=assistantIndex(),m=getContext().chat[i],rec=m?.extra?.relicta04;if(rec){const controls=m.extra?.relicta04_control;const base=controls?.after?.rev>=rec.after.rev?controls.after:rec.before;save(base);flights.set(contextId(getContext()),{before:copy(base),start:i});syncMessage(i);}setPrompt(current());refresh();await persistChat();});
