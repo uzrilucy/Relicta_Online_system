@@ -1,11 +1,11 @@
 {
-  "display_name": "Relicta Session · v0.6",
+  "display_name": "Relicta Session · v0.8.4 AI Judgement",
   "loading_order": 85,
   "requires": [],
   "optional": [],
   "js": "index.js",
   "css": "style.css",
   "author": "Relicta Online",
-  "version": "0.6.0",
+  "version": "0.8.4",
   "generate_interceptor": "relictaSessionInterceptor"
 }

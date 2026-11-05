@@ -119,12 +119,14 @@ export function applyGameAction(input,a,data,rules,catalog,rng=secureRng){
         if(ordinary.includes(a.type)){
             if(['logout','login'].includes(a.type)&&s.systems.battle?.status==='active')throw new Error('전투를 끝내거나 이탈한 뒤 접속을 전환해주세요.');
             if(a.type==='logout'&&s.systems.avatarTrap)throw new Error('아바타 구속을 먼저 해제해주세요.');
-            if(a.type==='quest'&&s.player.redBrand)throw new Error('붉은 낙인으로 퀘스트를 받을 수 없습니다.');
+            if(a.type==='quest'&&a.status==='active'&&s.player.redBrand)throw new Error('붉은 낙인으로 퀘스트를 받을 수 없습니다.');
             const r=authorAction(s,a,data);if(!r.ok)return r;s=defaults(r.state);receipt(s,'action',a.type==='logout'?'현실로 돌아왔습니다.':a.type==='login'?'게임에 접속했습니다.':'기록을 갱신했습니다.');return {ok:true,state:s};
         }
         if(a.type==='topup'){
             if(!integer(a.amount,1)||!Number.isSafeInteger(a.amount*1000)||!integer(s.systems.real.krw)||s.systems.real.krw<a.amount*1000||s.player.wallet.diamonds===null)throw new Error('가상 현실 지갑과 충전할 다이아 수를 확인해주세요.');
             s.systems.real.krw-=a.amount*1000;s.player.wallet.diamonds+=a.amount;receipt(s,'topup',`${a.amount}다이아 가상 충전 · 현실 지갑 ${a.amount*1000}원 차감`);
+        }else if(a.type==='travel'&&world(s,data)==='reality'&&data.locations[a.loc]?.world==='reality'){
+            s.loc=a.loc;s.place='';s.event='daily';s.companions=s.companions.filter(id=>allowed(id,s,data));s.cast=[...s.companions];receipt(s,'travel','현실 이동 · '+data.locations[a.loc].label);
         }else if(a.type==='setup'){
             if(!s.systems.setup.pending)throw new Error('시작 정보가 이미 확정됐습니다. 수정은 전체 세션 편집을 사용해주세요.');
             if(!integer(a.level,1)||!Number.isSafeInteger(threshold(a.level,rules))||!a.stats||Object.keys(a.stats).some(k=>!STAT_KEYS.includes(k))||STAT_KEYS.some(k=>!integer(a.stats[k])))throw new Error('레벨과 일곱 스탯을 입력해주세요.');
@@ -148,6 +150,8 @@ export function applyGameAction(input,a,data,rules,catalog,rng=secureRng){
             }else if(a.type==='claim'){
                 const q=s.quests.find(q=>q.id===a.id);if(!q||q.status!=='completed'||q.rewardClaimed)throw new Error('수령할 완료 퀘스트 보상이 없습니다.');
                 const loot=rollLoot(s,rules,catalog,rng,true);q.rewardClaimed=true;receipt(s,'quest','은총의 룰렛 보상을 받았습니다.',loot);
+            }else if(a.type==='unequip'){
+                if(!['weapon','armor','accessory'].includes(a.slot)||!s.systems.equipment[a.slot])throw new Error('해제할 장비가 없습니다.');s.systems.equipment[a.slot]=null;recalculate(s,rules,catalog);receipt(s,'gear','장비를 해제했습니다.');
             }else if(a.type==='equip'){
                 const i=itemOf(s,catalog,a.id);if(!i?.slot||!s.player.inventory.some(x=>x.id===a.id&&x.qty>0))throw new Error('장착 가능한 소지품이 아닙니다.');
                 s.systems.equipment[i.slot]=a.id;recalculate(s,rules,catalog);receipt(s,'gear',`${i.name} 장착`);
@@ -227,7 +231,7 @@ export function applyGameAction(input,a,data,rules,catalog,rng=secureRng){
 }
 
 export function gameSnapshot(s,data,rules,catalog){
-    const base={setup:s.systems.setup,recent:s.systems.receipts.slice(-3)};
+    const base={dialogue:s.systems.dialogue?{status:s.systems.dialogue.status,question:s.systems.dialogue.question,last:s.systems.dialogue.last}:null,setup:s.systems.setup,recent:s.systems.receipts.slice(-3)};
     if(world(s,data)!=='game')return {...base,real:s.systems.real};
     const b=s.systems.battle;
     return {...base,pendingGold:s.systems.pendingGold,derived:s.player.level?derived(s,rules,catalog):null,equipment:s.systems.equipment,guild:s.systems.guild,housing:s.systems.housing,pet:s.systems.pet,statuses:s.systems.statuses,cooldowns:s.systems.cooldowns,

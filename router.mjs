@@ -96,8 +96,21 @@ export function parsePlan(text) {
     }catch{return null;}
 }
 
+// v0.8.1: 명부 한 줄에 첫 등장용 외형·호칭 힌트를 붙인다 (전체 시트는 실제 등장인물만).
+export function hintOf(c,world) {
+    const look=(String(c.profile??'').match(/^Look:\s*(.+)$/m)?.[1]??'').replace(/^Reality:\s*/,'');
+    let first=look.split(/[;.]/)[0].trim();
+    if(world==='reality'&&c.realLook)first=c.realLook.split(/[.。]/)[0].trim();
+    const voice=(String(c.profile??'').match(/^Voice\/manner:\s*(.+)$/m)?.[1]??'').split(' · ').slice(0,2).join(', ');
+    return [first&&('Look: '+first.slice(0,90)),voice&&('Voice: '+voice.slice(0,70))].filter(Boolean).join(' | ');
+}
+export function coreLine(c) {
+    const m=String(c.private??'').match(/★중심 모순:\s*([^·]+(?:·(?!\s*★)[^·]+)*)/);
+    return m?m[1].trim().slice(0,220):'';
+}
 export function rosterText(d,data) {
-    const line=cid=>`${cid} ${data.chars[cid].name} — ${data.chars[cid].role}.`;
+    const w=d.location.world;
+    const line=cid=>{const c=data.chars[cid],h=hintOf(c,w);return `${cid} ${c.name} — ${c.role}.`+(h?` (${h})`:'');};
     const sections=[`[Current scene: ${d.location.label}; activity: ${data.events[d.state.event]}]`,
         'Directory entries are potential contacts, not people all present. Preserve local world constraints.',
         'Local candidates:\n'+(d.locals.map(line).join('\n')||'(no fixed local cast)')];
@@ -114,7 +127,7 @@ export function renderScene(input,data) {
     const d=directory(state,data);
     state.cast=state.cast.filter(cid=>allowed(cid,state,data));
     const chunks=[rosterText(d,data),
-        'Only the following actual cast have detailed sheets. An absent name is not a spawning command. Private information guides behavior without automatically becoming dialogue. Use the current-world appearance; powers never transfer into reality.'];
+        'Only the following actual cast have detailed sheets. An absent name is not a spawning command. Private information guides behavior without automatically becoming dialogue. Use the current-world appearance; powers never transfer into reality.\nNEWCOMER RULE: when someone from the directory first steps into the scene, use only their directory hint (look, form of address), keep the entrance brief and add their ID to ROAI cast; their full sheet arrives next turn, so do not improvise backstory, abilities or private facts on entry.'];
     const privateIds=[],identityIds=[],kitIds=[];
     for(const cid of state.cast) {
         const c={...data.chars[cid]};
@@ -132,6 +145,12 @@ export function renderScene(input,data) {
                 chunks.push('[Canonical ability rules: '+c.name+']\n'+c.kit);kitIds.push(cid);
             }
         }
+        const sampleLines=String(c.samples??'').split('\n').map(x=>x.trim()).filter(Boolean).slice(0,3);
+        if(sampleLines.length)chunks.push('[Voice samples: '+c.name+' — reference for tone and rhythm only; never reuse these lines verbatim]\n'+sampleLines.join('\n'));
+        const stage0=state.bonds[cid]??0;
+        const coreAllowed=c.kind!=='abyss'||state.abyssOrigin||stage0>=1;
+        if(!state.deep.includes(cid)&&coreAllowed){const core=coreLine(c);if(core)chunks.push('[Inner drive: '+c.name+' — act it out through choices, silence and small tells; never state or explain it]\n'+core);}
+        if(c.lock&&c.kind==='hidden')chunks.push('[GM secret: '+c.name+'; disclose only earned portions]\n'+c.lock);
         if(state.deep.includes(cid) && c.private) {
             chunks.push('[GM inner reference: '+c.name+'; only earned disclosures, never a public data dump]\n'+c.private);privateIds.push(cid);
         }
@@ -143,6 +162,7 @@ export function renderScene(input,data) {
         if(state.abyssOrigin && c.origin && (c.group!=='abyss'||stage>=3))chunks.push('[Earned origin: '+c.name+']\n'+c.origin);
     }
     if(state.worldTruth)chunks.push('[GM confirmed world truth; disclose only earned portions]\n'+data.worldTruth);
+    if(state.abyssOrigin&&data.abyssTruth&&state.cast.some(cid=>data.chars[cid]?.kind==='abyss'))chunks.push('[GM confirmed Abyss origin; disclose only earned portions]\n'+data.abyssTruth);
     if(state.autoMarkers) {
         chunks.push('Location codes (places only, not a global character roster): '+Object.values(data.locations).map(l=>l.code+'='+l.label).join('; '));
         chunks.push('Activity codes: '+Object.entries(data.events).map(([k,v])=>k+'='+v).join('; '));
