@@ -204,8 +204,9 @@ globalThis.relictaSessionInterceptor=async function(_chat,_contextSize,_abort,ty
 
 function element(tag,text,attrs={}){const n=document.createElement(tag);if(text!==null)n.textContent=text;for(const [k,v]of Object.entries(attrs))n.setAttribute(k,v);return n;}
 const get=k=>panel.querySelector(`[data-ro="${k}"]`);
-function check(key,label,parent=panel){const l=element('label',null),n=element('input',null,{type:'checkbox','data-ro':key});l.append(n,document.createTextNode(label));parent.append(l);return n;}
-function input(key,label,select=false){const l=element('label',label),n=element(select?'select':'input',null,{'data-ro':key});if(!select)n.type='text';l.append(n);panel.append(l);return n;}
+let body;
+function check(key,label,parent=body){const l=element('label',null),n=element('input',null,{type:'checkbox','data-ro':key});l.append(n,document.createTextNode(label));parent.append(l);return n;}
+function input(key,label,select=false){const l=element('label',label),n=element(select?'select':'input',null,{'data-ro':key});if(!select)n.type='text';l.append(n);body.append(l);return n;}
 function options(select,items,selected){select.replaceChildren();for(const [value,label]of items){const o=element('option',label,{value});o.selected=Array.isArray(selected)?selected.includes(value):String(selected)===String(value);select.append(o);}}
 function notify(result){if(result.ok)globalThis.toastr?.success('세션 기록에 반영했습니다.');else globalThis.toastr?.warning(result.error);}
 function paintStatus(){
@@ -237,7 +238,7 @@ function refresh(){
     options(get('known'),Object.keys(data.chars).filter(id=>['plat','mid','solo'].includes(data.chars[id].kind)).map(id=>[id,label(id)]),s.known);
     options(get('deep'),Object.keys(data.chars).map(id=>[id,label(id)]),s.deep);
     for(const k of ['known','deep'])filterOptions(k);
-    get('luck').value=String(luckOf(s));get('luck-odds').textContent=oddsLine(luckOf(s));get('altar-log').textContent=altarLog(s);
+    get('luck').value=String(luckOf(s));paintOdds(luckOf(s));get('altar-log').textContent=altarLog(s);
     for(const k of data.evidence)get('evidence-'+k).checked=s.evidence.includes(k);
     for(const k of ['question','junk','systemGap'])get('extra-'+k).checked=s.extras[k];
     for(let n=139;n<=145;n++)get('bond-c'+n).value=s.bonds['c'+n];
@@ -259,11 +260,16 @@ function fromUI(){
 }
 const pct=x=>x>=0.01?(x*100).toFixed(0)+'%':(x*100).toPrecision(1).replace(/\.?0+$/,'')+'%';
 function oddsLine(l){const o=oddsOf(l);return `신급 ${pct(o['신급'])} · 상등급 ${pct(o['상등급'])} · 노말 ${pct(o['노말'])} · 꽝 ${pct(o['꽝'])} · NPC가 뽑을 때는 적용하지 않음`;}
+function paintOdds(l){
+    const o=oddsOf(l),bar=get('luck-bar'),key=get('luck-key');get('luck-odds').textContent=oddsLine(l);
+    if(bar){const [a,b,c,d]=bar.children;a.style.flexGrow=Math.max(o['신급'],0.004);b.style.flexGrow=o['상등급'];c.style.flexGrow=o['노말'];d.style.flexGrow=o['꽝'];}
+    if(key){key.replaceChildren();for(const [k,name] of [['div','신급'],['sup','상등급'],['nor','노말'],['junk','꽝']]){const sp=element('span',null,{class:'k-'+k});const t=element('b',name+' '+pct(o[name]));t.style.color='var(--SmartThemeBodyColor, #ddd)';sp.append(t);key.append(sp);}}
+}
 function altarLog(s){const log=altarOf(s)?.log??[];return log.length?log.map(x=>`r${x.rev} #${x.no} ${x.from} → ${x.to} · ${x.reason}`).join('\n'):'(대기열 예외 기록 없음)';}
 function filterOptions(key){const q=(panel?.querySelector(`[data-ro-filter="${key}"]`)?.value??'').trim();for(const o of get(key).options)o.hidden=!!q&&!o.textContent.includes(q)&&!o.selected;}
 function nameList(key,label){
     const l=element('label',label),f=element('input',null,{type:'search',placeholder:'이름으로 찾기','data-ro-filter':key,'aria-label':label+' 검색'}),n=element('select',null,{'data-ro':key,multiple:'',size:'7'});
-    f.addEventListener('input',()=>filterOptions(key));l.append(f,n);panel.append(l);return n;
+    f.addEventListener('input',()=>filterOptions(key));l.append(f,n);body.append(l);return n;
 }
 function findChar(name){const q=String(name??'').trim();if(!q)return null;if(Object.hasOwn(data.chars,q))return q;
     return Object.values(data.chars).find(c=>c.name===q||(c.aliases??[]).includes(q))?.id??Object.values(data.chars).find(c=>c.name.includes(q))?.id??null;}
@@ -273,45 +279,59 @@ function toggleList(field,name,on){
     const s=current(),set=new Set(s[field]);on?set.add(id):set.delete(id);authorSet({...s,[field]:[...set]});
     return `${data.chars[id].name}: ${field==='known'?'현실 신원 연결':'심층 전체 참고'} ${on?'켬':'끔'}`;
 }
-function button(label,fn,parent=panel){const b=element('button',label,{type:'button',class:'menu_button'});b.addEventListener('click',fn);parent.append(b);return b;}
+function button(label,fn,parent=body){const b=element('button',label,{type:'button',class:'menu_button'});b.addEventListener('click',fn);parent.append(b);return b;}
 function mount(){
     const host=document.querySelector('#extensions_settings')??document.querySelector('#extensions_settings2');if(!host)return;
-    panel=element('details',null,{class:'ro-panel'});panel.append(element('summary','Relicta · 플레이 세션 v0.8.4'));
-    panel.append(element('p','현재 채팅의 위치·명부·플레이어·인연 기록을 하나의 세션으로 관리합니다.',{class:'ro-note'}));
+    panel=element('details',null,{class:'ro-panel'});
+    const sum=element('summary',null),gem=element('span',null,{class:'ro-sum-gem','aria-hidden':'true'}),title=element('span',null,{class:'ro-sum-t'});
+    gem.innerHTML='<svg viewBox="0 0 16 26"><polygon points="8,0 0,9 8,11" fill="currentColor" fill-opacity=".95"/><polygon points="8,0 16,9 8,11" fill="currentColor" fill-opacity=".55"/><polygon points="0,9 8,11 8,26" fill="currentColor" fill-opacity=".72"/><polygon points="16,9 8,11 8,26" fill="currentColor" fill-opacity=".32"/></svg>';
+    title.append(element('b','Relicta Online'),element('small','플레이 세션 · 상태창 · 판정 기록'));
+    sum.append(gem,title,element('span','v0.8.5',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
+    body=element('div',null,{class:'ro-body'});panel.append(body);
+    const sec=(en,ko)=>{const h=element('div',null,{class:'ro-sec'});h.append(element('b',en),element('span',ko));body.append(h);};
+    sec('Session','세션');
+    body.append(element('p','현재 채팅의 위치·명부·플레이어·인연 기록을 하나의 세션으로 관리합니다.',{class:'ro-note'}));
     check('enabled','이 채팅에서 사용');
+    sec('Scene','장면');
     options(input('loc','현재 위치',true),Object.values(data.locations).map(l=>[l.code,l.label]),'RN_START');
     options(input('event','활동',true),Object.entries(data.events),'daily');input('place','세부 장소 (자유 서술)');
     const cast=input('cast','실제 등장인물 · 최대 6명',true);cast.multiple=true;
-    panel.append(element('p','행동과 결과는 본문 AI가 판정하며, 이 확장은 최종 기록과 상태창을 관리합니다.',{class:'ro-note'}));
-    const luck=input('luck','행운 보정 · 플레이어 본인의 소환·룰렛',true);
+    body.append(element('p','행동과 결과는 본문 AI가 판정하며, 이 확장은 최종 기록과 상태창을 관리합니다.',{class:'ro-note'}));
+    sec('Altar','행운 보정');
+    const luck=input('luck','플레이어 본인의 소환·룰렛에만 적용',true);
     options(luck,LUCK.slice(1).map((l,i)=>[String(i+1),l.label]),'1');
-    panel.append(element('p','',{'data-ro':'luck-odds',class:'ro-note'}));
-    luck.addEventListener('change',()=>{get('luck-odds').textContent=oddsLine(Number(luck.value));});
+    const odds=element('div',null,{class:'ro-odds','data-ro':'luck-bar','aria-hidden':'true'});for(const k of ['div','sup','nor','junk'])odds.append(element('i',null,{class:'o-'+k}));body.append(odds);
+    body.append(element('div',null,{class:'ro-odds-key','data-ro':'luck-key'}));
+    body.append(element('p','',{'data-ro':'luck-odds',class:'ro-note'}));
+    luck.addEventListener('change',()=>paintOdds(Number(luck.value)));
+    sec('Cast','인물 참고');
     nameList('known','현실 신원을 연결한 플레이어 (Ctrl/⌘ 클릭으로 여러 명)');nameList('deep','심층 전체 참고를 허용할 인물 (기본은 중심 모순 한 줄만 자동 전달)');
-    const gates=element('details');gates.append(element('summary','제작자 진행 판정'));panel.append(gates);
+    sec('Author','제작자');
+    const gates=element('details');gates.append(element('summary','제작자 진행 판정'));body.append(gates);
     for(const [k,label]of Object.entries({servers:'NPC 서버 증거',audience:'관측실 증거',marca:'MARCA 증거',dreams:'의료 증언 증거'}))check('evidence-'+k,label,gates);
     for(let n=139;n<=145;n++){const l=element('label',data.chars['c'+n].name),select=element('select',null,{'data-ro':'bond-c'+n});options(select,[[0,'미진행'],[1,'균열'],[2,'귀환'],[3,'이름']],0);l.append(select);gates.append(l);}
     for(const [k,label]of Object.entries({question:'첫 질문 메모 확인',junk:'꽝 수집 조건 충족',systemGap:'현재 장면이 시스템의 틈'}))check('extra-'+k,label,gates);
     check('worldTruth','세계 진실 GM 참고',gates);check('abyssOrigin','나락 기원 GM 참고',gates);
-    button('장면·진행 설정 적용',()=>{try{authorSet(fromUI());globalThis.toastr?.success('현재 세션에 반영했습니다.');}catch(e){globalThis.toastr?.warning(e.message);refresh();}});
+    button('장면·진행 설정 적용',()=>{try{authorSet(fromUI());globalThis.toastr?.success('현재 세션에 반영했습니다.');}catch(e){globalThis.toastr?.warning(e.message);refresh();}}).classList.add('ro-primary');
     get('enabled').addEventListener('change',()=>authorSet({...current(),enabled:get('enabled').checked}));
-    const actions=element('div',null,{class:'ro-row'});panel.append(actions);
+    const actions=element('div',null,{class:'ro-row'});body.append(actions);
     button('로그아웃',()=>notify(runAction({type:'logout'})),actions);button('게임 접속',()=>notify(runAction({type:'login'})),actions);
-    const death=element('details');death.append(element('summary','사망·부활 시험 조작'));panel.append(death);
+    const death=element('details');death.append(element('summary','사망·부활 시험 조작'));body.append(death);
     death.append(element('p','실제 10초 입력 제한은 없습니다. 전투 HP가 0이 되면 이 부활 선택이 자동으로 열립니다.',{class:'ro-note'}));
     button('사망 판정 열기',()=>notify(runAction({type:'death'})),death);
     button('일반 부활 · 총EXP 절반',()=>notify(runAction({type:'revive',mode:'normal'})),death);
     button('즉시 부활 · 1,000다이아',()=>notify(runAction({type:'revive',mode:'diamonds'})),death);
     button('즉시 부활 · 1,000만 골드',()=>notify(runAction({type:'revive',mode:'gold'})),death);
-    panel.append(element('p','',{'data-ro':'summary',class:'ro-note'}));
-    const altarBox=element('details');altarBox.append(element('summary','제단 대기열 예외 기록'));altarBox.append(element('pre','',{'data-ro':'altar-log'}));panel.append(altarBox);
-    const status=element('details');status.append(element('summary','기록 확인 · 임시 표시'));status.append(element('pre','',{'data-ro':'status'}));panel.append(status);
-    const edit=element('details');edit.append(element('summary','전체 세션 JSON · 초기 수치 설정·내보내기'));panel.append(edit);
+    sec('Records','기록');
+    const altarBox=element('details');altarBox.append(element('summary','제단 대기열 예외 기록'));altarBox.append(element('pre','',{'data-ro':'altar-log'}));body.append(altarBox);
+    const status=element('details');status.append(element('summary','기록 확인 · 임시 표시'));status.append(element('pre','',{'data-ro':'status'}));body.append(status);
+    const edit=element('details');edit.append(element('summary','전체 세션 JSON · 초기 수치 설정·내보내기'));body.append(edit);
     edit.append(element('p','미정 값은 null로 유지합니다. 여기서 적용한 수치·진행 기록은 제작자 설정으로 취급합니다.',{class:'ro-note'}));
     const area=element('textarea','',{'data-ro':'json',rows:'12','aria-label':'전체 세션 JSON'});edit.append(area);
     button('현재 세션 읽기',()=>{area.value=JSON.stringify(current(),null,2);},edit);
     button('JSON을 세션에 적용',()=>{try{const value=JSON.parse(area.value);if(!value||typeof value!=='object'||Array.isArray(value))throw new Error();authorSet(value);}catch{globalThis.toastr?.error('세션 JSON을 확인해주세요.');}},edit);
-    const preview=element('details');preview.append(element('summary','실제 주입 본문'));const pre=element('pre','');preview.append(pre);preview.addEventListener('toggle',()=>{if(preview.open)pre.textContent=renderAIRequest(current(),data,rules,catalog).prompt||'(비활성)';});panel.append(preview);
+    const preview=element('details');preview.append(element('summary','실제 주입 본문'));const pre=element('pre','');preview.append(pre);preview.addEventListener('toggle',()=>{if(preview.open)pre.textContent=renderAIRequest(current(),data,rules,catalog).prompt||'(비활성)';});body.append(preview);
+    body.append(element('p','',{'data-ro':'summary',class:'ro-note ro-summary-line'}));
     host.append(panel);refresh();
 }
 
