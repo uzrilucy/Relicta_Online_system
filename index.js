@@ -89,8 +89,12 @@ function applyDisplayPolicy(message,index){
     message.extra??={};const prior=message.extra.relicta05_ui;
     const text=cleanNarrative(message.mes,false);
     const clean=on?text:stripDreamteo(text);
-    message.extra.relicta05_ui={dreamteo:on,ownsDisplay:clean!==message.mes};
-    if(clean!==message.mes){message.extra.display_text=clean;ctx.updateMessageBlock?.(index,message);}
+    // v0.8.11: 닫힌 판정 주석은 화면에 보이지 않으므로(정규식 14도 가린다) 표시 사본(display_text)을 만들지 않는다.
+    // 사본은 본문을 그 순간으로 고정해서, 응답 뒤에 이미지 태그 등을 덧붙이는 다른 확장의 내용을 가려 버렸다. 꼭 가려야 할 것이 있을 때만 쓰고, 다시 그리는 것도 내용이 바뀔 때만 한다.
+    const bare=String(message.mes??'').replace(/<!--RO(?:AI|4):[\s\S]*?-->/g,'');
+    const needs=clean!==bare;
+    message.extra.relicta05_ui={dreamteo:on,ownsDisplay:needs,base:needs?fingerprint(message.mes):null};
+    if(needs){if(message.extra.display_text!==clean){message.extra.display_text=clean;ctx.updateMessageBlock?.(index,message);}}
     else if(prior?.ownsDisplay){delete message.extra.display_text;ctx.updateMessageBlock?.(index,message);}
 }
 function userIndex(end=getContext().chat.length){
@@ -238,7 +242,8 @@ function paintStatus(){
     for(const old of document.querySelectorAll('.ro4-status-host'))old.remove();
     const s=current();if(!s.enabled)return;
     painting=true;
-    const i=assistantIndex(),host=document.querySelector('#chat .mes[mesid="'+i+'"] .mes_text')??document.querySelector('#chat');if(!host)return;
+    // v0.8.11: 상태창은 본문(.mes_text) 안이 아니라 메시지 블록 맨 끝에 붙인다. 본문을 다시 쓰거나 이미지를 끼워 넣는 다른 확장과 서로 건드리지 않는다.
+    const i=assistantIndex(),mes=document.querySelector('#chat .mes[mesid="'+i+'"]'),host=mes?.querySelector('.mes_block')??mes?.querySelector('.mes_text')??document.querySelector('#chat');if(!host){painting=false;return;}
     const view=document.createElement('div');view.className='ro4-status-host';view.innerHTML=statusHTML(s,data,rules,catalog);
     for(const d of view.querySelectorAll('details'))if(opened.has(d.querySelector('summary')?.textContent))d.open=true;
     // v0.8.1: 상태 기록이 빠지거나 일부만 반영됐을 때 상태창 안에만 조용히 표시한다(대화문에는 넣지 않음).
@@ -256,7 +261,7 @@ function paintStatus(){
 let painting=false,repaintTimer=null,observer=null;
 function watchChat(){
     const chat=document.querySelector?.('#chat');if(!chat||observer||typeof MutationObserver!=='function')return;
-    observer=new MutationObserver(()=>{if(painting||repaintTimer)return;repaintTimer=setTimeout(()=>{repaintTimer=null;try{if(data&&current().enabled&&!document.querySelector('.ro4-status-host'))paintStatus();}catch(e){console.warn('[Relicta] repaint',e);}},180);});
+    observer=new MutationObserver(()=>{if(painting||repaintTimer)return;repaintTimer=setTimeout(()=>{repaintTimer=null;try{if(!data||!current().enabled)return;const ch=getContext().chat,ai=assistantIndex(),m=ch[ai],ui=m?.extra?.relicta05_ui;if(ui?.ownsDisplay&&ui.base!==fingerprint(m.mes))applyDisplayPolicy(m,ai);if(!document.querySelector('.ro4-status-host'))paintStatus();}catch(e){console.warn('[Relicta] repaint',e);}},180);});
     observer.observe(chat,{childList:true,subtree:true});
 }
 function safeRefresh(){try{refresh();}catch(e){painting=false;diag.lastError='화면 갱신 오류: '+e.message;console.error('[Relicta] refresh failed',e);}}
@@ -298,7 +303,7 @@ function fromUI(){
 let dirty=false;
 function diagReport(){
     const ctx=getContext(),ch=ctx.chat,i=assistantIndex(),m=ch[i],u=userIndex(i<0?ch.length:i),r=m?.extra?.relicta04,s=current();
-    return {ext:'0.8.10',chat:ch.length,ai:i,user:u,mesLen:m?.mes?.length??null,block:!!judgeSig(m?.mes),
+    return {ext:'0.8.12',chat:ch.length,ai:i,user:u,mesLen:m?.mes?.length??null,block:!!judgeSig(m?.mes),
         rec:r?{len:Number(String(r.hash).split(':')[1]),hasSig:!!r.sig,match:r.hash===fingerprint(m.mes)?'hash':sameText(r,m)?'sig':'none',error:r.error??null}:null,
         userRec:!!ch[u]?.extra?.relicta04_user,pending:!!ch[u]?.extra?.relicta09_pending,rev:s.rev,enabled:s.enabled,card:!!cardConfig(ctx),
         events:{bound:diag.bound,init:diag.init,interceptor:diag.interceptor,received:diag.received,lastReceived:diag.lastReceived},lastSync:diag.lastSync,lastSkip:diag.lastSkip,recovered:diag.recovered,
@@ -350,7 +355,7 @@ function mount(){
     const sum=element('summary',null),gem=element('span',null,{class:'ro-sum-gem','aria-hidden':'true'}),title=element('span',null,{class:'ro-sum-t'});
     gem.innerHTML='<svg viewBox="0 0 16 26"><polygon points="8,0 0,9 8,11" fill="currentColor" fill-opacity=".95"/><polygon points="8,0 16,9 8,11" fill="currentColor" fill-opacity=".55"/><polygon points="0,9 8,11 8,26" fill="currentColor" fill-opacity=".72"/><polygon points="16,9 8,11 8,26" fill="currentColor" fill-opacity=".32"/></svg>';
     title.append(element('b','Relicta Online'),element('small','플레이 세션 · 상태창 · 판정 기록'));
-    sum.append(gem,title,element('span','v0.8.10',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
+    sum.append(gem,title,element('span','v0.8.12',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
     body=element('div',null,{class:'ro-body'});panel.append(body);
     const sec=(en,ko)=>{const h=element('div',null,{class:'ro-sec'});h.append(element('b',en),element('span',ko));body.append(h);};
     sec('Session','세션');
@@ -458,7 +463,7 @@ function bindEvents(){
         on('GENERATION_ENDED',resume);
         const received=async index=>{diag.received++;diag.lastReceived=index;if(!current().enabled)return;try{syncMessage(Number.isInteger(index)?index:assistantIndex());}catch(e){diag.lastError='응답 기록 오류: '+e.message;console.error('[Relicta] sync failed',e);}setPrompt(current());safeRefresh();await persistChat();};
         on('MESSAGE_RECEIVED',received);on('CHARACTER_MESSAGE_RENDERED',received);
-        on('MESSAGE_UPDATED',()=>{if(current().enabled)setTimeout(()=>{try{paintStatus();}catch{}},0);});on('MORE_MESSAGES_LOADED',()=>{try{paintStatus();}catch{}});
+        on('MESSAGE_UPDATED',index=>{if(!current().enabled)return;const ch=getContext().chat,i=Number.isInteger(Number(index))?Number(index):assistantIndex(),m=ch[i],ui=m?.extra?.relicta05_ui;if(m&&!m.is_user&&ui?.ownsDisplay&&ui.base!==fingerprint(m.mes))applyDisplayPolicy(m,i);setTimeout(()=>{try{paintStatus();}catch{}},0);});on('MORE_MESSAGES_LOADED',()=>{try{paintStatus();}catch{}});
         on('MESSAGE_SWIPED',async()=>{if(reseedFromGreeting()){setPrompt(current());refresh();await persistChat();return;}if(!current().enabled)return;checkpointUser();syncMessage(assistantIndex());setPrompt(current());refresh();await persistChat();});
         on('MESSAGE_DELETED',async()=>{restoreLatest();await persistChat();});
         on('MESSAGE_EDITED',()=>{restoreLatest();});
