@@ -16,7 +16,10 @@ const flights=new Map(),presentation=new Map(),ephemeral=new Map();let suspended
 const copy=x=>JSON.parse(JSON.stringify(x));
 // v0.8.6: crypto.randomUUID는 https·localhost에서만 있다. 휴대폰·LAN 주소로 접속해도 멈추지 않게 대체한다.
 const uuid=()=>{if(typeof globalThis.crypto?.randomUUID==='function')return globalThis.crypto.randomUUID();const b=new Uint8Array(16);globalThis.crypto.getRandomValues(b);b[6]=b[6]&15|64;b[8]=b[8]&63|128;const h=[...b].map(x=>x.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;};
-const diag={lastError:null,lastPrompt:0,lastSync:null,interceptor:0,lastSkip:null,recovered:0};
+const diag={lastError:null,lastPrompt:0,lastSync:null,interceptor:0,lastSkip:null,recovered:0,received:0,lastReceived:null};
+// v0.8.9: 응답 기록은 본문 전체가 아니라 숨은 판정 주석을 기준으로도 알아본다. 다른 확장·기능이 판정 뒤에 본문 글자를 고쳐도 기록이 풀리지 않는다.
+const judgeSig=text=>{const m=[...String(text??'').matchAll(/<!--RO(?:AI|4):[\s\S]*?-->|<RELICTA_STATE>[\s\S]*?<\/RELICTA_STATE>/g)].at(-1);return m?m[0].replace(/\s+/g,' '):null;};
+function sameText(record,message){if(!record||!message)return false;if(record.hash===fingerprint(message.mes))return true;if(message.is_user)return false;const s=judgeSig(message.mes);return !!s&&record.sig===s;}
 // v0.8.8: 같은 확장이 두 폴더에 설치되면 모듈이 두 번 돈다. 먼저 뜬 쪽만 일하고 나머지는 경고만 남긴다.
 const DUPLICATE=!!globalThis.__relictaSessionLoaded;if(DUPLICATE){globalThis.__relictaDuplicate=(globalThis.__relictaDuplicate??0)+1;console.warn('[Relicta] 같은 확장이 한 번 더 설치되어 있어 이 사본은 쉽니다:',import.meta.url);}else globalThis.__relictaSessionLoaded=import.meta.url;
 const contextId=ctx=>`${ctx.characterId??''}:${ctx.groupId??''}:${ctx.getCurrentChatId?.()??''}`;
@@ -95,7 +98,7 @@ function userIndex(end=getContext().chat.length){
 }
 function recordedState(message){
     const extra=message?.extra??{},record=message?.is_user?extra.relicta04_user:extra.relicta04;
-    const state=record?(record.hash===fingerprint(message.mes)?record.after:record.before):null;
+    const state=record?(sameText(record,message)?record.after:record.before):null;
     const control=extra.relicta04_control?.after;
     return control&&control.rev>=(state?.rev??-1)?control:state;
 }
@@ -148,7 +151,8 @@ function syncMessage(index=assistantIndex()){
     const valid=record&&record.hash===fingerprint(user.mes);
     const outcome=valid&&user.extra?.relicta08_outcome?.hash===record.hash?user.extra.relicta08_outcome:null;
     const active=flight&&index>=flight.start&&(!flight.turnId||valid&&flight.turnId===record.turnId&&flight.inputHash===record.hash);
-    if(existing?.hash===hash){
+    if(existing&&sameText(existing,message)){
+        if(existing.hash!==hash){existing.hash=hash;const si0=Array.isArray(message.swipe_info)?message.swipe_info[message.swipe_id??0]:null;if(si0?.extra?.relicta04)si0.extra.relicta04.hash=hash;}
         if(outcome)save(outcome.after);
         return {ok:true,state:current(),duplicate:true};
     }
@@ -164,7 +168,7 @@ function syncMessage(index=assistantIndex()){
     // 기록이 없거나 깨져도 이미 나온 소환 카드만큼은 제단 대기열을 넘겨 같은 결과가 반복되지 않게 한다.
     const result=locked?{ok:true,state:prepareAIState(locked,data,rules,catalog),error:null}:
         parsed.value?applyAIJudgement(before,parsed.value,data,rules,catalog,{gachaCards:cards}):{ok:false,state:consume(copy(before),cards),error:parsed.error};
-    message.extra??={};message.extra.relicta04={schema:4,hash,before:copy(before),after:copy(result.state),error:result.error??null,warnings:result.warnings??[],judgementVersion:8,turnId:record?.turnId,inputHash:record?.hash};
+    message.extra??={};message.extra.relicta04={schema:4,hash,sig:judgeSig(message.mes),before:copy(before),after:copy(result.state),error:result.error??null,warnings:result.warnings??[],judgementVersion:8,turnId:record?.turnId,inputHash:record?.hash};
     // v0.8.6: 실리태번은 스와이프별 extra를 swipe_info에 따로 보관한다. 다른 스와이프를 보고 돌아와도 기록이 남게 함께 적는다.
     const si=Array.isArray(message.swipe_info)?message.swipe_info[message.swipe_id??0]:null;if(si&&typeof si==='object'){si.extra??={};si.extra.relicta04=message.extra.relicta04;}
     diag.lastSync=result.error?String(result.error):'ok';diag.lastSkip=null;if(recovered)diag.recovered++;
@@ -239,7 +243,7 @@ function paintStatus(){
     for(const d of view.querySelectorAll('details'))if(opened.has(d.querySelector('summary')?.textContent))d.open=true;
     // v0.8.1: 상태 기록이 빠지거나 일부만 반영됐을 때 상태창 안에만 조용히 표시한다(대화문에는 넣지 않음).
     const msg=getContext().chat[i],last=msg?.extra?.relicta04;
-    if(last?.error&&last.hash===fingerprint(msg.mes)){
+    if(last?.error&&sameText(last,msg)){
         const partial=String(last.error).startsWith('partial');
         const badge=document.createElement('div');badge.className='ro4-sync'+(partial?' is-partial':'');badge.title=String(last.error);
         badge.textContent=partial?'◐ 이번 응답의 상태 기록 일부가 반영되지 않았습니다 · 수치가 본문과 다르면 재생성하세요':'○ 이번 응답의 상태 기록이 반영되지 않았습니다 · 재생성하면 다시 기록합니다';
@@ -292,9 +296,17 @@ function fromUI(){
     return s;
 }
 let dirty=false;
+function diagReport(){
+    const ctx=getContext(),ch=ctx.chat,i=assistantIndex(),m=ch[i],u=userIndex(i<0?ch.length:i),r=m?.extra?.relicta04,s=current();
+    return {ext:'0.8.9',chat:ch.length,ai:i,user:u,mesLen:m?.mes?.length??null,block:!!judgeSig(m?.mes),
+        rec:r?{len:Number(String(r.hash).split(':')[1]),hasSig:!!r.sig,match:r.hash===fingerprint(m.mes)?'hash':sameText(r,m)?'sig':'none',error:r.error??null}:null,
+        userRec:!!ch[u]?.extra?.relicta04_user,pending:!!ch[u]?.extra?.relicta09_pending,rev:s.rev,enabled:s.enabled,card:!!cardConfig(ctx),
+        events:{interceptor:diag.interceptor,received:diag.received,lastReceived:diag.lastReceived},lastSync:diag.lastSync,lastSkip:diag.lastSkip,recovered:diag.recovered,
+        duplicate:globalThis.__relictaDuplicate??0,error:diag.lastError,tail:String(m?.mes??'').replace(/<!--[\s\S]*?-->/g,'').slice(-60)};
+}
 function paintConn(s){
     const el=get('conn');if(!el)return;const ctx=getContext(),config=cardConfig(ctx),msg=ctx.chat[assistantIndex()],last=msg?.extra?.relicta04;
-    const fresh=last&&last.hash===fingerprint(msg.mes);
+    const fresh=last&&sameText(last,msg);const dg=get('diag');if(dg)try{dg.value=JSON.stringify(diagReport(),null,1);}catch(e){dg.value=String(e);}
     const sync=!s.enabled?null:!fresh?'아직 판정한 응답 없음':last.error?(String(last.error).startsWith('partial')?'일부만 반영':'기록 없음 · 재생성 필요'):'반영됨';
     const tone=!s.enabled?'off':diag.lastError?'bad':((fresh&&last.error)||(!fresh&&diag.lastSkip)||globalThis.__relictaDuplicate)?'warn':'on';
     el.dataset.tone=tone;el.replaceChildren();
@@ -337,11 +349,12 @@ function mount(){
     const sum=element('summary',null),gem=element('span',null,{class:'ro-sum-gem','aria-hidden':'true'}),title=element('span',null,{class:'ro-sum-t'});
     gem.innerHTML='<svg viewBox="0 0 16 26"><polygon points="8,0 0,9 8,11" fill="currentColor" fill-opacity=".95"/><polygon points="8,0 16,9 8,11" fill="currentColor" fill-opacity=".55"/><polygon points="0,9 8,11 8,26" fill="currentColor" fill-opacity=".72"/><polygon points="16,9 8,11 8,26" fill="currentColor" fill-opacity=".32"/></svg>';
     title.append(element('b','Relicta Online'),element('small','플레이 세션 · 상태창 · 판정 기록'));
-    sum.append(gem,title,element('span','v0.8.8',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
+    sum.append(gem,title,element('span','v0.8.9',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
     body=element('div',null,{class:'ro-body'});panel.append(body);
     const sec=(en,ko)=>{const h=element('div',null,{class:'ro-sec'});h.append(element('b',en),element('span',ko));body.append(h);};
     sec('Session','세션');
     body.append(element('div',null,{class:'ro-conn','data-ro':'conn','aria-live':'polite'}));
+    {const d=element('details',null,{class:'ro-diag'});d.append(element('summary','진단 정보 · 문의할 때 길게 눌러 복사'),element('textarea',null,{'data-ro':'diag',readonly:'',rows:'7',spellcheck:'false'}));body.append(d);}
     body.append(element('p','현재 채팅의 위치·명부·플레이어·인연 기록을 하나의 세션으로 관리합니다.',{class:'ro-note'}));
     // v0.8.6: 켜고 끄기는 누르는 즉시 저장한다(예전에는 「적용」을 눌러야 해서 다음 응답 때 다시 꺼진 것처럼 보였다).
     check('enabled','이 채팅에서 사용').addEventListener('change',e=>{try{const st=current();st.enabled=e.target.checked;if(st.enabled)ensureAltar(st);authorSet(st);if(st.enabled)setPrompt(current());else clearPrompt();globalThis.toastr?.success(st.enabled?'이 채팅에서 렐릭타 세션을 켰습니다.':'이 채팅에서 렐릭타 세션을 껐습니다.');}catch(err){globalThis.toastr?.warning(err.message);safeRefresh();}});
@@ -401,6 +414,7 @@ function command(_args,value){
     if(['심층해제','undeep'].includes(verb))return toggleList('deep',parts.join(' '),false);
     const gameAction=gameTextAction(String(value??''));if(gameAction){const r=runAction(gameAction);notify(r);return r.ok?JSON.stringify(snapshot(r.state,data)):r.error;}
     if(['상태','status'].includes(verb))return JSON.stringify(snapshot(current(),data));
+    if(['진단','diag'].includes(verb)){const text=JSON.stringify(diagReport());globalThis.toastr?.info?.(text,'Relicta 진단',{timeOut:0,extendedTimeOut:0,closeButton:true});return text;}
     if(['로그아웃','logout'].includes(verb))action={type:'logout'};
     else if(['접속','login'].includes(verb))action={type:'login'};
     else if(['사망','death'].includes(verb))action={type:'death'};
@@ -411,7 +425,7 @@ function command(_args,value){
     else if(['거절','decline'].includes(verb))action={type:'quest',id:parts[0],status:'declined'};
     else if(['동행','follow'].includes(verb))action={type:'follow',id:parts[0]};
     else if(['헤어짐','leave'].includes(verb))action={type:'leave',id:parts[0]};
-    if(!action)return '사용: /relicta 상태 | 행운 1~6 | 연결 이름 | 연결해제 이름 | 심층 이름 | 심층해제 이름 | 로그아웃 | 접속 | 스탯 STR 2 | 수락 q_id | 사망 | 부활 일반/다이아/골드';
+    if(!action)return '사용: /relicta 상태 | 진단 | 행운 1~6 | 연결 이름 | 연결해제 이름 | 심층 이름 | 심층해제 이름 | 로그아웃 | 접속 | 스탯 STR 2 | 수락 q_id | 사망 | 부활 일반/다이아/골드';
     const result=runAction(action);notify(result);return result.ok?JSON.stringify(snapshot(result.state,data)):result.error;
 }
 
@@ -429,7 +443,7 @@ async function initialize(){
         on('GENERATE_AFTER_DATA',()=>{const p=presentation.get(contextId(getContext()));if(p)p.awaiting=false;resume();});
         on('GENERATION_STOPPED',()=>{const p=presentation.get(contextId(getContext()));if(p)p.awaiting=false;resume();});
         on('GENERATION_ENDED',resume);
-        const received=async index=>{if(!current().enabled)return;try{syncMessage(Number.isInteger(index)?index:assistantIndex());}catch(e){diag.lastError='응답 기록 오류: '+e.message;console.error('[Relicta] sync failed',e);}setPrompt(current());safeRefresh();await persistChat();};
+        const received=async index=>{diag.received++;diag.lastReceived=index;if(!current().enabled)return;try{syncMessage(Number.isInteger(index)?index:assistantIndex());}catch(e){diag.lastError='응답 기록 오류: '+e.message;console.error('[Relicta] sync failed',e);}setPrompt(current());safeRefresh();await persistChat();};
         on('MESSAGE_RECEIVED',received);on('CHARACTER_MESSAGE_RENDERED',received);
         on('MESSAGE_UPDATED',()=>{if(current().enabled)setTimeout(()=>{try{paintStatus();}catch{}},0);});on('MORE_MESSAGES_LOADED',()=>{try{paintStatus();}catch{}});
         on('MESSAGE_SWIPED',async()=>{if(reseedFromGreeting()){setPrompt(current());refresh();await persistChat();return;}if(!current().enabled)return;checkpointUser();syncMessage(assistantIndex());setPrompt(current());refresh();await persistChat();});
