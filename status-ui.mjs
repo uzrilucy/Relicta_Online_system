@@ -1,4 +1,4 @@
-// v0.8.5 상태창 「Somnium Record」 — Lucid 디자인. 읽기 전용 기록이며 조작 버튼은 두지 않는다.
+// v0.8.7 상태창 「Somnium Record」 — Lucid 디자인. 읽기 전용 기록이며 조작 버튼은 두지 않는다.
 import {world,STAT_KEYS} from './session.mjs';
 import {threshold} from './engine.mjs';
 const e=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

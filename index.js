@@ -14,6 +14,9 @@ const LEGACY_KEY='relicta_session_v03',LEGACY_PROMPT='relicta_session_v03';
 let data,rules,catalog,pending,panel,loadingError;
 const flights=new Map(),presentation=new Map(),ephemeral=new Map();let suspended=false;
 const copy=x=>JSON.parse(JSON.stringify(x));
+// v0.8.7: crypto.randomUUID는 https·localhost에서만 있다. 휴대폰·LAN 주소로 접속해도 멈추지 않게 대체한다.
+const uuid=()=>{if(typeof globalThis.crypto?.randomUUID==='function')return globalThis.crypto.randomUUID();const b=new Uint8Array(16);globalThis.crypto.getRandomValues(b);b[6]=b[6]&15|64;b[8]=b[8]&63|128;const h=[...b].map(x=>x.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;};
+const diag={lastError:null,lastPrompt:0,lastSync:null,interceptor:0};
 const contextId=ctx=>`${ctx.characterId??''}:${ctx.groupId??''}:${ctx.getCurrentChatId?.()??''}`;
 async function loadData(){
     if(!pending)pending=Promise.all(['cast-data.sealed.json','rules.json','catalog.json'].map(file=>fetch(new URL('./'+file,import.meta.url)).then(r=>{if(!r.ok)throw new Error('Data HTTP '+r.status);return r.json();}))).then(([d,r,c])=>{data=unsealData(d);rules=r;catalog=c;validateRules(r,c);return d;}).catch(e=>{loadingError=e;throw e;});
@@ -30,6 +33,8 @@ function store(ctx=getContext()){
     const config=cardConfig(ctx),legacy=ctx.chatMetadata[LEGACY_KEY];
     const old=legacy?.state??legacy;const enabled=!!config||old?.enabled===true;
     // v0.8.1: 렐릭타가 아닌 채팅에는 아무것도 저장하지 않는다(사용자가 직접 켤 때만 기록).
+    const shallow=!!ctx.characters?.[ctx.characterId]?.shallow;
+    if(!enabled&&shallow){const s=seed(data,rules,catalog,'free');s.enabled=false;return {schema:4,state:s,origin:copy(s)};}
     if(!enabled){const id=contextId(ctx);if(!ephemeral.has(id)){const s=seed(data,rules,catalog,'free');s.enabled=false;ephemeral.set(id,{schema:4,state:s,origin:copy(s)});}return ephemeral.get(id);}
     const opening=ctx.chat.find(m=>!m.is_user&&!m.is_system)?.mes;
     const selected=config?.greeting_modes?.find(g=>g.text===opening)?.mode??config?.mode??'free';
@@ -103,10 +108,10 @@ function checkpointUser(){
     let record=message.extra.relicta04_user;
     if(record?.hash!==hash){
         const before=record?.before?copy(record.before):prefixState(index);
-        record={hash,turnId:globalThis.crypto.randomUUID(),before,after:copy(before),judgementVersion:8};
+        record={hash,turnId:uuid(),before,after:copy(before),judgementVersion:8};
         message.extra.relicta04_user=record;delete message.extra.relicta08_outcome;
     }else{
-        record.turnId??=globalThis.crypto.randomUUID();
+        record.turnId??=uuid();
         // Old v0.8 already charged/rolled before narration. Pin that completed result.
         if(record.judgementVersion!==8&&!message.extra.relicta08_outcome&&record.actions?.length){
             let after=record.after;
@@ -153,6 +158,9 @@ function syncMessage(index=assistantIndex()){
     const result=locked?{ok:true,state:prepareAIState(locked,data,rules,catalog),error:null}:
         parsed.value?applyAIJudgement(before,parsed.value,data,rules,catalog,{gachaCards:cards}):{ok:false,state:consume(copy(before),cards),error:parsed.error};
     message.extra??={};message.extra.relicta04={schema:4,hash,before:copy(before),after:copy(result.state),error:result.error??null,warnings:result.warnings??[],judgementVersion:8,turnId:record?.turnId,inputHash:record?.hash};
+    // v0.8.7: 실리태번은 스와이프별 extra를 swipe_info에 따로 보관한다. 다른 스와이프를 보고 돌아와도 기록이 남게 함께 적는다.
+    const si=Array.isArray(message.swipe_info)?message.swipe_info[message.swipe_id??0]:null;if(si&&typeof si==='object'){si.extra??={};si.extra.relicta04=message.extra.relicta04;}
+    diag.lastSync=result.error?String(result.error):'ok';
     if(result.ok&&valid&&!outcome){user.extra.relicta08_outcome={hash:record.hash,turnId:record.turnId,after:copy(result.state),source:'ai'};}
     save(result.state);return result;
 }
@@ -163,7 +171,7 @@ function restoreLatest(){
 function pinAuthorState(state){
     const message=getContext().chat[userIndex()],record=message?.extra?.relicta04_user;
     if(record&&record.hash===fingerprint(message.mes)){
-        record.turnId??=globalThis.crypto.randomUUID();
+        record.turnId??=uuid();
         message.extra.relicta08_outcome={hash:record.hash,turnId:record.turnId,after:copy(state),source:'author'};
     }
 }
@@ -196,10 +204,11 @@ globalThis.relictaSessionInterceptor=async function(_chat,_contextSize,_abort,ty
         if(Array.isArray(_chat)){const clean=cleanHistory(_chat);_chat.splice(0,_chat.length,...clean);}
         presentation.set(id,{enabled:false,awaiting:true});
         const rendered=setPrompt(state,{locked:!!turn?.outcome,utterance:turn?.message.mes??'',altarState:turn?.outcome?turn.record.after:null});save(rendered.state);
+        diag.lastPrompt=rendered.prompt.length;diag.interceptor++;diag.lastError=null;
         flights.set(id,{before:copy(turn?.record.after??state),lockedAfter:turn?.outcome?copy(turn.outcome.after):null,
             turnId:turn?.record.turnId,inputHash:turn?.hash,dreamteo:false,start:turn?turn.index+1:getContext().chat.length});
-        refresh();await persistChat();
-    }catch(e){if(id===contextId(getContext()))clearPrompt();console.error('[Relicta] Session preparation failed',e);}
+        safeRefresh();await persistChat();
+    }catch(e){if(id===contextId(getContext()))clearPrompt();diag.lastError='생성 준비 실패: '+(e?.message??e);console.error('[Relicta] Session preparation failed',e);safeRefresh();}
 };
 
 function element(tag,text,attrs={}){const n=document.createElement(tag);if(text!==null)n.textContent=text;for(const [k,v]of Object.entries(attrs))n.setAttribute(k,v);return n;}
@@ -214,6 +223,7 @@ function paintStatus(){
     const opened=new Set([...document.querySelectorAll('.ro4-status-host details[open]')].map(d=>d.querySelector('summary')?.textContent));
     for(const old of document.querySelectorAll('.ro4-status-host'))old.remove();
     const s=current();if(!s.enabled)return;
+    painting=true;
     const i=assistantIndex(),host=document.querySelector('#chat .mes[mesid="'+i+'"] .mes_text')??document.querySelector('#chat');if(!host)return;
     const view=document.createElement('div');view.className='ro4-status-host';view.innerHTML=statusHTML(s,data,rules,catalog);
     for(const d of view.querySelectorAll('details'))if(opened.has(d.querySelector('summary')?.textContent))d.open=true;
@@ -226,11 +236,23 @@ function paintStatus(){
         view.prepend(badge);
     }
     bindStatus(view,async a=>{notify(runAction(a));await persistChat();},async()=>{await getContext().generate?.('normal');});host.append(view);
+    painting=false;
 }
+// v0.8.7: 메시지 칸이 다시 그려져 상태창이 사라지면 곧바로 다시 붙인다.
+let painting=false,repaintTimer=null,observer=null;
+function watchChat(){
+    const chat=document.querySelector?.('#chat');if(!chat||observer||typeof MutationObserver!=='function')return;
+    observer=new MutationObserver(()=>{if(painting||repaintTimer)return;repaintTimer=setTimeout(()=>{repaintTimer=null;try{if(data&&current().enabled&&!document.querySelector('.ro4-status-host'))paintStatus();}catch(e){console.warn('[Relicta] repaint',e);}},180);});
+    observer.observe(chat,{childList:true,subtree:true});
+}
+function safeRefresh(){try{refresh();}catch(e){painting=false;diag.lastError='화면 갱신 오류: '+e.message;console.error('[Relicta] refresh failed',e);}}
 function refresh(){
     paintStatus();if(!panel||!data)return;
     const s=current(),d=directory(s,data),r=renderAIRequest(s,data,rules,catalog);
-    for(const k of ['enabled','worldTruth','abyssOrigin'])get(k).checked=s[k];
+    get('enabled').checked=s.enabled;get('luck').value=String(luckOf(s));paintOdds(luckOf(s));paintConn(s);
+    get('dirty').hidden=!dirty;
+    if(!dirty){
+    for(const k of ['worldTruth','abyssOrigin'])get(k).checked=s[k];
     get('loc').value=s.loc;get('event').value=s.event;get('place').value=s.place;
     const candidates=[...new Set([...d.eligible,...s.cast,...s.known.filter(id=>allowed(id,s,data))])];
     options(get('cast'),candidates.map(id=>[id,`${id} ${data.chars[id].name} · ${data.chars[id].role}`]),s.cast);
@@ -238,10 +260,11 @@ function refresh(){
     options(get('known'),Object.keys(data.chars).filter(id=>['plat','mid','solo'].includes(data.chars[id].kind)).map(id=>[id,label(id)]),s.known);
     options(get('deep'),Object.keys(data.chars).map(id=>[id,label(id)]),s.deep);
     for(const k of ['known','deep'])filterOptions(k);
-    get('luck').value=String(luckOf(s));paintOdds(luckOf(s));get('altar-log').textContent=altarLog(s);
     for(const k of data.evidence)get('evidence-'+k).checked=s.evidence.includes(k);
     for(const k of ['question','junk','systemGap'])get('extra-'+k).checked=s.extras[k];
     for(let n=139;n<=145;n++)get('bond-c'+n).value=s.bonds['c'+n];
+    }
+    get('altar-log').textContent=altarLog(s);
     const last=getContext().chat[assistantIndex()]?.extra?.relicta04;
     get('summary').textContent=`세션 r${s.rev} · ${d.location.label} · 상세 ${r.state.cast.length}명 · 주입 ${r.prompt.length.toLocaleString()}자`+(last?.error?` · 마지막 제안: ${last.error}`:'');
     get('status').textContent=JSON.stringify(snapshot(s,data),null,2);
@@ -257,6 +280,21 @@ function fromUI(){
     for(const k of ['question','junk','systemGap'])s.extras[k]=get('extra-'+k).checked;
     for(let n=139;n<=145;n++)s.bonds['c'+n]=Number(get('bond-c'+n).value);
     return s;
+}
+let dirty=false;
+function paintConn(s){
+    const el=get('conn');if(!el)return;const ctx=getContext(),config=cardConfig(ctx),msg=ctx.chat[assistantIndex()],last=msg?.extra?.relicta04;
+    const fresh=last&&last.hash===fingerprint(msg.mes);
+    const sync=!s.enabled?null:!fresh?'아직 판정한 응답 없음':last.error?(String(last.error).startsWith('partial')?'일부만 반영':'기록 없음 · 재생성 필요'):'반영됨';
+    const tone=!s.enabled?'off':diag.lastError?'bad':(fresh&&last.error)?'warn':'on';
+    el.dataset.tone=tone;el.replaceChildren();
+    const head=element('b',!s.enabled?'○ 꺼짐':tone==='bad'?'● 오류':tone==='warn'?'◐ 확인 필요':'● 연결됨');
+    const lines=[config?'렐릭타 카드 인식':'렐릭타 카드로 인식되지 않음 · 아래 「이 채팅에서 사용」을 켜면 수동으로 연결됩니다',
+        s.enabled?`세션 r${s.rev} · 마지막 응답 ${sync}`:null,
+        s.enabled&&diag.interceptor?`이번 접속 판정 요청 ${diag.interceptor}회 · 지시문 ${diag.lastPrompt.toLocaleString()}자`:null,
+        diag.lastError,
+        globalThis.isSecureContext===false?'보안 연결이 아닌 주소(LAN IP 등)로 접속 중 · v0.8.7부터 정상 동작':null].filter(Boolean);
+    el.append(head);for(const l of lines)el.append(element('span',l));
 }
 const pct=x=>x>=0.01?(x*100).toFixed(0)+'%':(x*100).toPrecision(1).replace(/\.?0+$/,'')+'%';
 function oddsLine(l){const o=oddsOf(l);return `신급 ${pct(o['신급'])} · 상등급 ${pct(o['상등급'])} · 노말 ${pct(o['노말'])} · 꽝 ${pct(o['꽝'])} · NPC가 뽑을 때는 적용하지 않음`;}
@@ -286,12 +324,14 @@ function mount(){
     const sum=element('summary',null),gem=element('span',null,{class:'ro-sum-gem','aria-hidden':'true'}),title=element('span',null,{class:'ro-sum-t'});
     gem.innerHTML='<svg viewBox="0 0 16 26"><polygon points="8,0 0,9 8,11" fill="currentColor" fill-opacity=".95"/><polygon points="8,0 16,9 8,11" fill="currentColor" fill-opacity=".55"/><polygon points="0,9 8,11 8,26" fill="currentColor" fill-opacity=".72"/><polygon points="16,9 8,11 8,26" fill="currentColor" fill-opacity=".32"/></svg>';
     title.append(element('b','Relicta Online'),element('small','플레이 세션 · 상태창 · 판정 기록'));
-    sum.append(gem,title,element('span','v0.8.5',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
+    sum.append(gem,title,element('span','v0.8.7',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
     body=element('div',null,{class:'ro-body'});panel.append(body);
     const sec=(en,ko)=>{const h=element('div',null,{class:'ro-sec'});h.append(element('b',en),element('span',ko));body.append(h);};
     sec('Session','세션');
+    body.append(element('div',null,{class:'ro-conn','data-ro':'conn','aria-live':'polite'}));
     body.append(element('p','현재 채팅의 위치·명부·플레이어·인연 기록을 하나의 세션으로 관리합니다.',{class:'ro-note'}));
-    check('enabled','이 채팅에서 사용');
+    // v0.8.7: 켜고 끄기는 누르는 즉시 저장한다(예전에는 「적용」을 눌러야 해서 다음 응답 때 다시 꺼진 것처럼 보였다).
+    check('enabled','이 채팅에서 사용').addEventListener('change',e=>{try{const st=current();st.enabled=e.target.checked;if(st.enabled)ensureAltar(st);authorSet(st);if(st.enabled)setPrompt(current());else clearPrompt();globalThis.toastr?.success(st.enabled?'이 채팅에서 렐릭타 세션을 켰습니다.':'이 채팅에서 렐릭타 세션을 껐습니다.');}catch(err){globalThis.toastr?.warning(err.message);safeRefresh();}});
     sec('Scene','장면');
     options(input('loc','현재 위치',true),Object.values(data.locations).map(l=>[l.code,l.label]),'RN_START');
     options(input('event','활동',true),Object.entries(data.events),'daily');input('place','세부 장소 (자유 서술)');
@@ -303,7 +343,7 @@ function mount(){
     const odds=element('div',null,{class:'ro-odds','data-ro':'luck-bar','aria-hidden':'true'});for(const k of ['div','sup','nor','junk'])odds.append(element('i',null,{class:'o-'+k}));body.append(odds);
     body.append(element('div',null,{class:'ro-odds-key','data-ro':'luck-key'}));
     body.append(element('p','',{'data-ro':'luck-odds',class:'ro-note'}));
-    luck.addEventListener('change',()=>paintOdds(Number(luck.value)));
+    luck.addEventListener('change',()=>{const n=Number(luck.value);paintOdds(n);try{const st=current();setLuck(st,n);authorSet(st);}catch(err){globalThis.toastr?.warning(err.message);safeRefresh();}});
     sec('Cast','인물 참고');
     nameList('known','현실 신원을 연결한 플레이어 (Ctrl/⌘ 클릭으로 여러 명)');nameList('deep','심층 전체 참고를 허용할 인물 (기본은 중심 모순 한 줄만 자동 전달)');
     sec('Author','제작자');
@@ -312,7 +352,11 @@ function mount(){
     for(let n=139;n<=145;n++){const l=element('label',data.chars['c'+n].name),select=element('select',null,{'data-ro':'bond-c'+n});options(select,[[0,'미진행'],[1,'균열'],[2,'귀환'],[3,'이름']],0);l.append(select);gates.append(l);}
     for(const [k,label]of Object.entries({question:'첫 질문 메모 확인',junk:'꽝 수집 조건 충족',systemGap:'현재 장면이 시스템의 틈'}))check('extra-'+k,label,gates);
     check('worldTruth','세계 진실 GM 참고',gates);check('abyssOrigin','나락 기원 GM 참고',gates);
-    button('장면·진행 설정 적용',()=>{try{authorSet(fromUI());globalThis.toastr?.success('현재 세션에 반영했습니다.');}catch(e){globalThis.toastr?.warning(e.message);refresh();}}).classList.add('ro-primary');
+    const dirtyNote=element('p','적용하지 않은 변경이 있습니다 · 「장면·진행 설정 적용」을 눌러야 세션에 반영됩니다',{class:'ro-note ro-dirty','data-ro':'dirty'});dirtyNote.hidden=true;body.append(dirtyNote);
+    button('장면·진행 설정 적용',()=>{try{authorSet(fromUI());dirty=false;globalThis.toastr?.success('현재 세션에 반영했습니다.');safeRefresh();}catch(e){globalThis.toastr?.warning(e.message);}}).classList.add('ro-primary');
+    button('변경 취소',()=>{dirty=false;safeRefresh();});
+    body.addEventListener('change',e=>{const k=e.target?.dataset?.ro;if(!k||['enabled','luck','json'].includes(k))return;dirty=true;get('dirty').hidden=false;});
+    body.addEventListener('input',e=>{if(e.target?.dataset?.ro==='place'){dirty=true;get('dirty').hidden=false;}});
     get('enabled').addEventListener('change',()=>authorSet({...current(),enabled:get('enabled').checked}));
     const actions=element('div',null,{class:'ro-row'});body.append(actions);
     button('로그아웃',()=>notify(runAction({type:'logout'})),actions);button('게임 접속',()=>notify(runAction({type:'login'})),actions);
@@ -362,16 +406,19 @@ async function initialize(){
     try{
         await loadData();store();mount();const ctx=getContext();
         const on=(name,fn)=>{if(ctx.eventTypes[name])ctx.eventSource.on(ctx.eventTypes[name],fn);};
-        on('CHAT_CHANGED',()=>{presentation.clear();flights.clear();clearPrompt();store();setPrompt(current());refresh();});
+        on('CHAT_CHANGED',()=>{presentation.clear();flights.clear();clearPrompt();dirty=false;store();setPrompt(current());safeRefresh();watchChat();});
         on('WORLD_INFO_ACTIVATED',entries=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting){p.enabled=dreamteoFromEntries(entries);const f=flights.get(contextId(getContext()));if(f)f.dreamteo=p.enabled;}});
-        on('CHAT_COMPLETION_PROMPT_READY',event=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting&&current().enabled&&Array.isArray(event.chat)){event.chat=withDreamteoPolicy(event.chat,p.enabled);event.chat.push({role:'system',content:finalAIInstruction()});}});
+        on('CHAT_COMPLETION_PROMPT_READY',event=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting&&current().enabled&&Array.isArray(event.chat)){
+            // v0.8.7: 실리태번(openai.js)은 event.chat을 다시 읽지 않고 원래 배열을 그대로 보낸다. 새 배열로 바꾸면 지시문이 사라지므로 제자리에서 고친다.
+            const next=withDreamteoPolicy(event.chat,p.enabled);next.push({role:'system',content:finalAIInstruction()});event.chat.splice(0,event.chat.length,...next);}});
         on('GENERATE_AFTER_COMBINE_PROMPTS',event=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting&&current().enabled&&typeof event.prompt==='string')event.prompt=textDreamteoPolicy(event.prompt,p.enabled)+'\n'+finalAIInstruction();});
         const resume=()=>{if(!suspended)return;suspended=false;if(current().enabled)setPrompt(current());};
         on('GENERATE_AFTER_DATA',()=>{const p=presentation.get(contextId(getContext()));if(p)p.awaiting=false;resume();});
         on('GENERATION_STOPPED',()=>{const p=presentation.get(contextId(getContext()));if(p)p.awaiting=false;resume();});
         on('GENERATION_ENDED',resume);
-        const received=async index=>{if(!current().enabled)return;syncMessage(Number.isInteger(index)?index:assistantIndex());setPrompt(current());refresh();await persistChat();};
+        const received=async index=>{if(!current().enabled)return;try{syncMessage(Number.isInteger(index)?index:assistantIndex());}catch(e){diag.lastError='응답 기록 오류: '+e.message;console.error('[Relicta] sync failed',e);}setPrompt(current());safeRefresh();await persistChat();};
         on('MESSAGE_RECEIVED',received);on('CHARACTER_MESSAGE_RENDERED',received);
+        on('MESSAGE_UPDATED',()=>{if(current().enabled)setTimeout(()=>{try{paintStatus();}catch{}},0);});on('MORE_MESSAGES_LOADED',()=>{try{paintStatus();}catch{}});
         on('MESSAGE_SWIPED',async()=>{if(reseedFromGreeting()){setPrompt(current());refresh();await persistChat();return;}if(!current().enabled)return;checkpointUser();syncMessage(assistantIndex());setPrompt(current());refresh();await persistChat();});
         on('MESSAGE_DELETED',async()=>{restoreLatest();await persistChat();});
         on('MESSAGE_EDITED',()=>{restoreLatest();});
@@ -381,7 +428,7 @@ async function initialize(){
             helpString:'렐릭타 세션: 상태, 행운 보정(행운 1~6), 현실 신원 연결(연결/연결해제 이름), 심층 참고(심층/심층해제 이름), 로그아웃, 접속, 스탯, 퀘스트 수락, 사망·부활'}));
         else if(ctx.registerSlashCommand)ctx.registerSlashCommand('relicta',command,[], '렐릭타 시험 세션 조작',true,true);
         globalThis.RelictaSession={getState:()=>copy(current()),action:runAction,importState:authorSet,exportState:()=>JSON.stringify(current(),null,2)};
-        setPrompt(current());refresh();
+        setPrompt(current());safeRefresh();watchChat();
     }catch(e){console.error('[Relicta] Session init failed',loadingError??e);}
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initialize,{once:true});else initialize();
