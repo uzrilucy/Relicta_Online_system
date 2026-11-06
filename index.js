@@ -14,9 +14,11 @@ const LEGACY_KEY='relicta_session_v03',LEGACY_PROMPT='relicta_session_v03';
 let data,rules,catalog,pending,panel,loadingError;
 const flights=new Map(),presentation=new Map(),ephemeral=new Map();let suspended=false;
 const copy=x=>JSON.parse(JSON.stringify(x));
-// v0.8.7: crypto.randomUUID는 https·localhost에서만 있다. 휴대폰·LAN 주소로 접속해도 멈추지 않게 대체한다.
+// v0.8.6: crypto.randomUUID는 https·localhost에서만 있다. 휴대폰·LAN 주소로 접속해도 멈추지 않게 대체한다.
 const uuid=()=>{if(typeof globalThis.crypto?.randomUUID==='function')return globalThis.crypto.randomUUID();const b=new Uint8Array(16);globalThis.crypto.getRandomValues(b);b[6]=b[6]&15|64;b[8]=b[8]&63|128;const h=[...b].map(x=>x.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;};
-const diag={lastError:null,lastPrompt:0,lastSync:null,interceptor:0};
+const diag={lastError:null,lastPrompt:0,lastSync:null,interceptor:0,lastSkip:null,recovered:0};
+// v0.8.8: 같은 확장이 두 폴더에 설치되면 모듈이 두 번 돈다. 먼저 뜬 쪽만 일하고 나머지는 경고만 남긴다.
+const DUPLICATE=!!globalThis.__relictaSessionLoaded;if(DUPLICATE){globalThis.__relictaDuplicate=(globalThis.__relictaDuplicate??0)+1;console.warn('[Relicta] 같은 확장이 한 번 더 설치되어 있어 이 사본은 쉽니다:',import.meta.url);}else globalThis.__relictaSessionLoaded=import.meta.url;
 const contextId=ctx=>`${ctx.characterId??''}:${ctx.groupId??''}:${ctx.getCurrentChatId?.()??''}`;
 async function loadData(){
     if(!pending)pending=Promise.all(['cast-data.sealed.json','rules.json','catalog.json'].map(file=>fetch(new URL('./'+file,import.meta.url)).then(r=>{if(!r.ok)throw new Error('Data HTTP '+r.status);return r.json();}))).then(([d,r,c])=>{data=unsealData(d);rules=r;catalog=c;validateRules(r,c);return d;}).catch(e=>{loadingError=e;throw e;});
@@ -139,8 +141,10 @@ function syncMessage(index=assistantIndex()){
     if(!message||message.is_user||message.is_system||!current().enabled)return {ok:false,error:'not-assistant'};
     applyDisplayPolicy(message,index);
     const hash=fingerprint(message.mes),existing=message.extra?.relicta04;
-    const flight=flights.get(contextId(ctx));
     const u=userIndex(index),user=ctx.chat[u],record=user?.extra?.relicta04_user;
+    // v0.8.8: 판정 대기 정보는 메모리뿐 아니라 채팅 기록(입력 메시지 · 채팅 메타)에도 둔다. 생성 도중 채팅이 다시 불러와져도 짝을 잃지 않는다.
+    let flight=flights.get(contextId(ctx)),recovered=false;
+    if(!flight){const p=u>=0?user?.extra?.relicta09_pending:store(ctx).pending;if(p&&typeof p.start==='number'){flight=p;recovered=true;}}
     const valid=record&&record.hash===fingerprint(user.mes);
     const outcome=valid&&user.extra?.relicta08_outcome?.hash===record.hash?user.extra.relicta08_outcome:null;
     const active=flight&&index>=flight.start&&(!flight.turnId||valid&&flight.turnId===record.turnId&&flight.inputHash===record.hash);
@@ -149,7 +153,10 @@ function syncMessage(index=assistantIndex()){
         return {ok:true,state:current(),duplicate:true};
     }
     // Historical/imported text is never replayed as a new purchase on load/render.
-    if(!active&&!outcome)return {ok:false,state:current(),error:'historical-record-only'};
+    if(!active&&!outcome){
+        if(index===assistantIndex()&&existing?.hash!==hash)diag.lastSkip=!flight?'판정 대기 정보 없음(생성 전 준비가 이 응답과 이어지지 않음)':index<flight.start?'판정 요청보다 앞선 메시지':'입력 메시지가 판정 요청 뒤에 바뀜';
+        return {ok:false,state:current(),error:'historical-record-only'};
+    }
     const before=prepareAIState(active?flight.before:record.after,data,rules,catalog);
     const locked=outcome?.after??(active?flight.lockedAfter:null);
     const parsed=parseAIJudgement(message.mes);
@@ -158,9 +165,10 @@ function syncMessage(index=assistantIndex()){
     const result=locked?{ok:true,state:prepareAIState(locked,data,rules,catalog),error:null}:
         parsed.value?applyAIJudgement(before,parsed.value,data,rules,catalog,{gachaCards:cards}):{ok:false,state:consume(copy(before),cards),error:parsed.error};
     message.extra??={};message.extra.relicta04={schema:4,hash,before:copy(before),after:copy(result.state),error:result.error??null,warnings:result.warnings??[],judgementVersion:8,turnId:record?.turnId,inputHash:record?.hash};
-    // v0.8.7: 실리태번은 스와이프별 extra를 swipe_info에 따로 보관한다. 다른 스와이프를 보고 돌아와도 기록이 남게 함께 적는다.
+    // v0.8.6: 실리태번은 스와이프별 extra를 swipe_info에 따로 보관한다. 다른 스와이프를 보고 돌아와도 기록이 남게 함께 적는다.
     const si=Array.isArray(message.swipe_info)?message.swipe_info[message.swipe_id??0]:null;if(si&&typeof si==='object'){si.extra??={};si.extra.relicta04=message.extra.relicta04;}
-    diag.lastSync=result.error?String(result.error):'ok';
+    diag.lastSync=result.error?String(result.error):'ok';diag.lastSkip=null;if(recovered)diag.recovered++;
+    if(user?.extra?.relicta09_pending)delete user.extra.relicta09_pending;{const m=ctx.chatMetadata[KEY];if(m?.pending&&u<0)delete m.pending;}
     if(result.ok&&valid&&!outcome){user.extra.relicta08_outcome={hash:record.hash,turnId:record.turnId,after:copy(result.state),source:'ai'};}
     save(result.state);return result;
 }
@@ -190,7 +198,7 @@ function authorSet(value){
     return next;
 }
 
-globalThis.relictaSessionInterceptor=async function(_chat,_contextSize,_abort,type){
+const relictaInterceptor=async function(_chat,_contextSize,_abort,type){
     const id=contextId(getContext());
     try{
         await loadData();if(id!==contextId(getContext()))return;
@@ -207,9 +215,11 @@ globalThis.relictaSessionInterceptor=async function(_chat,_contextSize,_abort,ty
         diag.lastPrompt=rendered.prompt.length;diag.interceptor++;diag.lastError=null;
         flights.set(id,{before:copy(turn?.record.after??state),lockedAfter:turn?.outcome?copy(turn.outcome.after):null,
             turnId:turn?.record.turnId,inputHash:turn?.hash,dreamteo:false,start:turn?turn.index+1:getContext().chat.length});
+        {const f=copy(flights.get(id));if(turn){turn.message.extra.relicta09_pending=f;}else{const m=store();m.pending=f;}diag.lastSkip=null;}
         safeRefresh();await persistChat();
     }catch(e){if(id===contextId(getContext()))clearPrompt();diag.lastError='생성 준비 실패: '+(e?.message??e);console.error('[Relicta] Session preparation failed',e);safeRefresh();}
 };
+if(!DUPLICATE)globalThis.relictaSessionInterceptor=relictaInterceptor;
 
 function element(tag,text,attrs={}){const n=document.createElement(tag);if(text!==null)n.textContent=text;for(const [k,v]of Object.entries(attrs))n.setAttribute(k,v);return n;}
 const get=k=>panel.querySelector(`[data-ro="${k}"]`);
@@ -238,7 +248,7 @@ function paintStatus(){
     bindStatus(view,async a=>{notify(runAction(a));await persistChat();},async()=>{await getContext().generate?.('normal');});host.append(view);
     painting=false;
 }
-// v0.8.7: 메시지 칸이 다시 그려져 상태창이 사라지면 곧바로 다시 붙인다.
+// v0.8.6: 메시지 칸이 다시 그려져 상태창이 사라지면 곧바로 다시 붙인다.
 let painting=false,repaintTimer=null,observer=null;
 function watchChat(){
     const chat=document.querySelector?.('#chat');if(!chat||observer||typeof MutationObserver!=='function')return;
@@ -286,14 +296,17 @@ function paintConn(s){
     const el=get('conn');if(!el)return;const ctx=getContext(),config=cardConfig(ctx),msg=ctx.chat[assistantIndex()],last=msg?.extra?.relicta04;
     const fresh=last&&last.hash===fingerprint(msg.mes);
     const sync=!s.enabled?null:!fresh?'아직 판정한 응답 없음':last.error?(String(last.error).startsWith('partial')?'일부만 반영':'기록 없음 · 재생성 필요'):'반영됨';
-    const tone=!s.enabled?'off':diag.lastError?'bad':(fresh&&last.error)?'warn':'on';
+    const tone=!s.enabled?'off':diag.lastError?'bad':((fresh&&last.error)||(!fresh&&diag.lastSkip)||globalThis.__relictaDuplicate)?'warn':'on';
     el.dataset.tone=tone;el.replaceChildren();
     const head=element('b',!s.enabled?'○ 꺼짐':tone==='bad'?'● 오류':tone==='warn'?'◐ 확인 필요':'● 연결됨');
     const lines=[config?'렐릭타 카드 인식':'렐릭타 카드로 인식되지 않음 · 아래 「이 채팅에서 사용」을 켜면 수동으로 연결됩니다',
         s.enabled?`세션 r${s.rev} · 마지막 응답 ${sync}`:null,
         s.enabled&&diag.interceptor?`이번 접속 판정 요청 ${diag.interceptor}회 · 지시문 ${diag.lastPrompt.toLocaleString()}자`:null,
+        sync==='아직 판정한 응답 없음'&&diag.lastSkip?'기록 건너뜀 · '+diag.lastSkip:null,
+        diag.recovered?`채팅 기록에서 판정 대기 정보 복구 ${diag.recovered}회`:null,
+        globalThis.__relictaDuplicate?'⚠ Relicta 확장이 두 번 설치되어 있습니다 · 확장 관리에서 하나를 지워주세요':null,
         diag.lastError,
-        globalThis.isSecureContext===false?'보안 연결이 아닌 주소(LAN IP 등)로 접속 중 · v0.8.7부터 정상 동작':null].filter(Boolean);
+        globalThis.isSecureContext===false?'보안 연결이 아닌 주소(LAN IP 등)로 접속 중 · v0.8.6부터 정상 동작':null].filter(Boolean);
     el.append(head);for(const l of lines)el.append(element('span',l));
 }
 const pct=x=>x>=0.01?(x*100).toFixed(0)+'%':(x*100).toPrecision(1).replace(/\.?0+$/,'')+'%';
@@ -324,13 +337,13 @@ function mount(){
     const sum=element('summary',null),gem=element('span',null,{class:'ro-sum-gem','aria-hidden':'true'}),title=element('span',null,{class:'ro-sum-t'});
     gem.innerHTML='<svg viewBox="0 0 16 26"><polygon points="8,0 0,9 8,11" fill="currentColor" fill-opacity=".95"/><polygon points="8,0 16,9 8,11" fill="currentColor" fill-opacity=".55"/><polygon points="0,9 8,11 8,26" fill="currentColor" fill-opacity=".72"/><polygon points="16,9 8,11 8,26" fill="currentColor" fill-opacity=".32"/></svg>';
     title.append(element('b','Relicta Online'),element('small','플레이 세션 · 상태창 · 판정 기록'));
-    sum.append(gem,title,element('span','v0.8.7',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
+    sum.append(gem,title,element('span','v0.8.8',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
     body=element('div',null,{class:'ro-body'});panel.append(body);
     const sec=(en,ko)=>{const h=element('div',null,{class:'ro-sec'});h.append(element('b',en),element('span',ko));body.append(h);};
     sec('Session','세션');
     body.append(element('div',null,{class:'ro-conn','data-ro':'conn','aria-live':'polite'}));
     body.append(element('p','현재 채팅의 위치·명부·플레이어·인연 기록을 하나의 세션으로 관리합니다.',{class:'ro-note'}));
-    // v0.8.7: 켜고 끄기는 누르는 즉시 저장한다(예전에는 「적용」을 눌러야 해서 다음 응답 때 다시 꺼진 것처럼 보였다).
+    // v0.8.6: 켜고 끄기는 누르는 즉시 저장한다(예전에는 「적용」을 눌러야 해서 다음 응답 때 다시 꺼진 것처럼 보였다).
     check('enabled','이 채팅에서 사용').addEventListener('change',e=>{try{const st=current();st.enabled=e.target.checked;if(st.enabled)ensureAltar(st);authorSet(st);if(st.enabled)setPrompt(current());else clearPrompt();globalThis.toastr?.success(st.enabled?'이 채팅에서 렐릭타 세션을 켰습니다.':'이 채팅에서 렐릭타 세션을 껐습니다.');}catch(err){globalThis.toastr?.warning(err.message);safeRefresh();}});
     sec('Scene','장면');
     options(input('loc','현재 위치',true),Object.values(data.locations).map(l=>[l.code,l.label]),'RN_START');
@@ -407,9 +420,9 @@ async function initialize(){
         await loadData();store();mount();const ctx=getContext();
         const on=(name,fn)=>{if(ctx.eventTypes[name])ctx.eventSource.on(ctx.eventTypes[name],fn);};
         on('CHAT_CHANGED',()=>{presentation.clear();flights.clear();clearPrompt();dirty=false;store();setPrompt(current());safeRefresh();watchChat();});
-        on('WORLD_INFO_ACTIVATED',entries=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting){p.enabled=dreamteoFromEntries(entries);const f=flights.get(contextId(getContext()));if(f)f.dreamteo=p.enabled;}});
+        on('WORLD_INFO_ACTIVATED',entries=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting){p.enabled=dreamteoFromEntries(entries);const f=flights.get(contextId(getContext()));if(f)f.dreamteo=p.enabled;const ui=getContext().chat[userIndex()]?.extra?.relicta09_pending;if(ui)ui.dreamteo=p.enabled;}});
         on('CHAT_COMPLETION_PROMPT_READY',event=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting&&current().enabled&&Array.isArray(event.chat)){
-            // v0.8.7: 실리태번(openai.js)은 event.chat을 다시 읽지 않고 원래 배열을 그대로 보낸다. 새 배열로 바꾸면 지시문이 사라지므로 제자리에서 고친다.
+            // v0.8.6: 실리태번(openai.js)은 event.chat을 다시 읽지 않고 원래 배열을 그대로 보낸다. 새 배열로 바꾸면 지시문이 사라지므로 제자리에서 고친다.
             const next=withDreamteoPolicy(event.chat,p.enabled);next.push({role:'system',content:finalAIInstruction()});event.chat.splice(0,event.chat.length,...next);}});
         on('GENERATE_AFTER_COMBINE_PROMPTS',event=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting&&current().enabled&&typeof event.prompt==='string')event.prompt=textDreamteoPolicy(event.prompt,p.enabled)+'\n'+finalAIInstruction();});
         const resume=()=>{if(!suspended)return;suspended=false;if(current().enabled)setPrompt(current());};
@@ -431,4 +444,4 @@ async function initialize(){
         setPrompt(current());safeRefresh();watchChat();
     }catch(e){console.error('[Relicta] Session init failed',loadingError??e);}
 }
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initialize,{once:true});else initialize();
+if(!DUPLICATE){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initialize,{once:true});else initialize();}
