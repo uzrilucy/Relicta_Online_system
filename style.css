@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Gowun+Batang:wght@400;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
 /* ═══════════════════════════════════════════════════════════════
-   Relicta Session v0.8.9 · Lucid
+   Relicta Session v0.8.10 · Lucid
    1) 확장 설정 패널 (.ro-panel)  2) 상태창 Somnium Record (.rl-hud)  3) 기록 누락 표시 (.ro4-sync)
    ═══════════════════════════════════════════════════════════════ */
 
@@ -195,5 +195,5 @@
 .ro4-status-host .ro4-sync{display:flex;align-items:center;justify-content:center;gap:8px;max-width:600px;margin:16px auto -10px;padding:7px 14px;border-radius:999px;background:rgba(20,15,43,.78);box-shadow:inset 0 0 0 1px rgba(201,182,255,.3);color:#d8ccff;font-size:11.5px;line-height:1.5;text-align:center;font-family:'Noto Sans KR',sans-serif}
 .ro4-status-host .ro4-sync.is-partial{box-shadow:inset 0 0 0 1px rgba(255,207,223,.45);color:#ffcfdf}
 
-/* v0.8.9 진단 정보 */
+/* v0.8.10 진단 정보 */
 .ro-panel .ro-diag{margin:0 0 8px}.ro-panel .ro-diag>summary{cursor:pointer;font-size:11px;opacity:.7;padding:2px 0}.ro-panel .ro-diag textarea{width:100%;box-sizing:border-box;margin-top:4px;padding:8px 10px;border-radius:8px;font:11px/1.45 ui-monospace,'D2Coding',Consolas,monospace;resize:vertical;user-select:text;-webkit-user-select:text}

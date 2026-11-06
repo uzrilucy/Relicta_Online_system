@@ -16,7 +16,7 @@ const flights=new Map(),presentation=new Map(),ephemeral=new Map();let suspended
 const copy=x=>JSON.parse(JSON.stringify(x));
 // v0.8.6: crypto.randomUUID는 https·localhost에서만 있다. 휴대폰·LAN 주소로 접속해도 멈추지 않게 대체한다.
 const uuid=()=>{if(typeof globalThis.crypto?.randomUUID==='function')return globalThis.crypto.randomUUID();const b=new Uint8Array(16);globalThis.crypto.getRandomValues(b);b[6]=b[6]&15|64;b[8]=b[8]&63|128;const h=[...b].map(x=>x.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;};
-const diag={lastError:null,lastPrompt:0,lastSync:null,interceptor:0,lastSkip:null,recovered:0,received:0,lastReceived:null};
+const diag={lastError:null,lastPrompt:0,lastSync:null,interceptor:0,lastSkip:null,recovered:0,received:0,lastReceived:null,bound:0,init:null};
 // v0.8.9: 응답 기록은 본문 전체가 아니라 숨은 판정 주석을 기준으로도 알아본다. 다른 확장·기능이 판정 뒤에 본문 글자를 고쳐도 기록이 풀리지 않는다.
 const judgeSig=text=>{const m=[...String(text??'').matchAll(/<!--RO(?:AI|4):[\s\S]*?-->|<RELICTA_STATE>[\s\S]*?<\/RELICTA_STATE>/g)].at(-1);return m?m[0].replace(/\s+/g,' '):null;};
 function sameText(record,message){if(!record||!message)return false;if(record.hash===fingerprint(message.mes))return true;if(message.is_user)return false;const s=judgeSig(message.mes);return !!s&&record.sig===s;}
@@ -205,7 +205,7 @@ function authorSet(value){
 const relictaInterceptor=async function(_chat,_contextSize,_abort,type){
     const id=contextId(getContext());
     try{
-        await loadData();if(id!==contextId(getContext()))return;
+        await loadData();bindEvents();if(id!==contextId(getContext()))return;
         let state=current();if(!state.enabled){clearPrompt();return;}
         // v0.8.1: 요약·대리 입력 같은 다른 생성에는 렐릭타 지시문을 빼고, 생성이 끝나면 되돌린다.
         if(['quiet','impersonate'].includes(type)){getContext().setExtensionPrompt(PROMPT,'',1,0,false,0);suspended=true;return;}
@@ -262,7 +262,7 @@ function watchChat(){
 function safeRefresh(){try{refresh();}catch(e){painting=false;diag.lastError='화면 갱신 오류: '+e.message;console.error('[Relicta] refresh failed',e);}}
 function refresh(){
     paintStatus();if(!panel||!data)return;
-    const s=current(),d=directory(s,data),r=renderAIRequest(s,data,rules,catalog);
+    const s=current(),d=directory(s,data),r=s.enabled?renderAIRequest(s,data,rules,catalog):{state:s,prompt:''};
     get('enabled').checked=s.enabled;get('luck').value=String(luckOf(s));paintOdds(luckOf(s));paintConn(s);
     get('dirty').hidden=!dirty;
     if(!dirty){
@@ -298,10 +298,10 @@ function fromUI(){
 let dirty=false;
 function diagReport(){
     const ctx=getContext(),ch=ctx.chat,i=assistantIndex(),m=ch[i],u=userIndex(i<0?ch.length:i),r=m?.extra?.relicta04,s=current();
-    return {ext:'0.8.9',chat:ch.length,ai:i,user:u,mesLen:m?.mes?.length??null,block:!!judgeSig(m?.mes),
+    return {ext:'0.8.10',chat:ch.length,ai:i,user:u,mesLen:m?.mes?.length??null,block:!!judgeSig(m?.mes),
         rec:r?{len:Number(String(r.hash).split(':')[1]),hasSig:!!r.sig,match:r.hash===fingerprint(m.mes)?'hash':sameText(r,m)?'sig':'none',error:r.error??null}:null,
         userRec:!!ch[u]?.extra?.relicta04_user,pending:!!ch[u]?.extra?.relicta09_pending,rev:s.rev,enabled:s.enabled,card:!!cardConfig(ctx),
-        events:{interceptor:diag.interceptor,received:diag.received,lastReceived:diag.lastReceived},lastSync:diag.lastSync,lastSkip:diag.lastSkip,recovered:diag.recovered,
+        events:{bound:diag.bound,init:diag.init,interceptor:diag.interceptor,received:diag.received,lastReceived:diag.lastReceived},lastSync:diag.lastSync,lastSkip:diag.lastSkip,recovered:diag.recovered,
         duplicate:globalThis.__relictaDuplicate??0,error:diag.lastError,tail:String(m?.mes??'').replace(/<!--[\s\S]*?-->/g,'').slice(-60)};
 }
 function paintConn(s){
@@ -316,6 +316,7 @@ function paintConn(s){
         s.enabled&&diag.interceptor?`이번 접속 판정 요청 ${diag.interceptor}회 · 지시문 ${diag.lastPrompt.toLocaleString()}자`:null,
         sync==='아직 판정한 응답 없음'&&diag.lastSkip?'기록 건너뜀 · '+diag.lastSkip:null,
         diag.recovered?`채팅 기록에서 판정 대기 정보 복구 ${diag.recovered}회`:null,
+        !diag.bound?'⚠ 실리 이벤트에 연결되지 않았습니다 · 페이지를 새로고침해 주세요':null,
         globalThis.__relictaDuplicate?'⚠ Relicta 확장이 두 번 설치되어 있습니다 · 확장 관리에서 하나를 지워주세요':null,
         diag.lastError,
         globalThis.isSecureContext===false?'보안 연결이 아닌 주소(LAN IP 등)로 접속 중 · v0.8.6부터 정상 동작':null].filter(Boolean);
@@ -349,7 +350,7 @@ function mount(){
     const sum=element('summary',null),gem=element('span',null,{class:'ro-sum-gem','aria-hidden':'true'}),title=element('span',null,{class:'ro-sum-t'});
     gem.innerHTML='<svg viewBox="0 0 16 26"><polygon points="8,0 0,9 8,11" fill="currentColor" fill-opacity=".95"/><polygon points="8,0 16,9 8,11" fill="currentColor" fill-opacity=".55"/><polygon points="0,9 8,11 8,26" fill="currentColor" fill-opacity=".72"/><polygon points="16,9 8,11 8,26" fill="currentColor" fill-opacity=".32"/></svg>';
     title.append(element('b','Relicta Online'),element('small','플레이 세션 · 상태창 · 판정 기록'));
-    sum.append(gem,title,element('span','v0.8.9',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
+    sum.append(gem,title,element('span','v0.8.10',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
     body=element('div',null,{class:'ro-body'});panel.append(body);
     const sec=(en,ko)=>{const h=element('div',null,{class:'ro-sec'});h.append(element('b',en),element('span',ko));body.append(h);};
     sec('Session','세션');
@@ -402,7 +403,7 @@ function mount(){
     button('JSON을 세션에 적용',()=>{try{const value=JSON.parse(area.value);if(!value||typeof value!=='object'||Array.isArray(value))throw new Error();authorSet(value);}catch{globalThis.toastr?.error('세션 JSON을 확인해주세요.');}},edit);
     const preview=element('details');preview.append(element('summary','실제 주입 본문'));const pre=element('pre','');preview.append(pre);preview.addEventListener('toggle',()=>{if(preview.open)pre.textContent=renderAIRequest(current(),data,rules,catalog).prompt||'(비활성)';});body.append(preview);
     body.append(element('p','',{'data-ro':'summary',class:'ro-note ro-summary-line'}));
-    host.append(panel);refresh();
+    host.append(panel);safeRefresh();
 }
 
 function command(_args,value){
@@ -431,8 +432,20 @@ function command(_args,value){
 
 async function initialize(){
     try{
-        await loadData();store();mount();const ctx=getContext();
-        const on=(name,fn)=>{if(ctx.eventTypes[name])ctx.eventSource.on(ctx.eventTypes[name],fn);};
+        await loadData();
+        // v0.8.10: 이벤트를 먼저 연결한다. 예전에는 패널을 그리다 오류가 나면(실리를 막 켜서 캐릭터를 아직 안 고른 상태) 이벤트 연결이 통째로 건너뛰어져,
+        // 판정 요청만 나가고 응답 기록·상태창·채팅 전환이 전부 멈췄다.
+        bindEvents();
+        try{store();}catch(e){diag.lastError='세션 준비 오류: '+e.message;console.error('[Relicta] store',e);}
+        try{mount();}catch(e){diag.lastError='패널 표시 오류: '+e.message;console.error('[Relicta] mount',e);}
+        diag.init='ok';
+    }catch(e){diag.init='실패: '+(e?.message??e);diag.lastError='확장 시작 실패: '+(e?.message??e);console.error('[Relicta] Session init failed',loadingError??e);}
+}
+let bound=false;
+function bindEvents(){
+    if(bound)return;const ctx=getContext();if(!ctx?.eventSource||!ctx?.eventTypes)return;bound=true;
+    const on=(name,fn)=>{if(ctx.eventTypes[name])ctx.eventSource.on(ctx.eventTypes[name],async(...a)=>{try{return await fn(...a);}catch(e){diag.lastError='이벤트 처리 오류('+name+'): '+(e?.message??e);console.error('[Relicta] '+name,e);}});diag.bound++;};
+    {
         on('CHAT_CHANGED',()=>{presentation.clear();flights.clear();clearPrompt();dirty=false;store();setPrompt(current());safeRefresh();watchChat();});
         on('WORLD_INFO_ACTIVATED',entries=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting){p.enabled=dreamteoFromEntries(entries);const f=flights.get(contextId(getContext()));if(f)f.dreamteo=p.enabled;const ui=getContext().chat[userIndex()]?.extra?.relicta09_pending;if(ui)ui.dreamteo=p.enabled;}});
         on('CHAT_COMPLETION_PROMPT_READY',event=>{const p=presentation.get(contextId(getContext()));if(p?.awaiting&&current().enabled&&Array.isArray(event.chat)){
@@ -450,12 +463,12 @@ async function initialize(){
         on('MESSAGE_DELETED',async()=>{restoreLatest();await persistChat();});
         on('MESSAGE_EDITED',()=>{restoreLatest();});
         // Registration through the current ST context; no shell or external service is used.
-        if(ctx.SlashCommandParser?.addCommandObject&&ctx.SlashCommand?.fromProps)ctx.SlashCommandParser.addCommandObject(ctx.SlashCommand.fromProps({name:'relicta',callback:command,splitUnnamedArgument:false,
+        try{if(ctx.SlashCommandParser?.addCommandObject&&ctx.SlashCommand?.fromProps)ctx.SlashCommandParser.addCommandObject(ctx.SlashCommand.fromProps({name:'relicta',callback:command,splitUnnamedArgument:false,
             unnamedArgumentList:ctx.SlashCommandArgument?.fromProps?[ctx.SlashCommandArgument.fromProps({description:'동작과 인수',typeList:[ctx.ARGUMENT_TYPE?.STRING??'string'],isRequired:false})]:[],
             helpString:'렐릭타 세션: 상태, 행운 보정(행운 1~6), 현실 신원 연결(연결/연결해제 이름), 심층 참고(심층/심층해제 이름), 로그아웃, 접속, 스탯, 퀘스트 수락, 사망·부활'}));
-        else if(ctx.registerSlashCommand)ctx.registerSlashCommand('relicta',command,[], '렐릭타 시험 세션 조작',true,true);
+        else if(ctx.registerSlashCommand)ctx.registerSlashCommand('relicta',command,[], '렐릭타 시험 세션 조작',true,true);}catch(e){console.warn('[Relicta] slash command',e);}
         globalThis.RelictaSession={getState:()=>copy(current()),action:runAction,importState:authorSet,exportState:()=>JSON.stringify(current(),null,2)};
-        setPrompt(current());safeRefresh();watchChat();
-    }catch(e){console.error('[Relicta] Session init failed',loadingError??e);}
+        try{setPrompt(current());}catch{}safeRefresh();watchChat();
+    }
 }
 if(!DUPLICATE){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initialize,{once:true});else initialize();}
