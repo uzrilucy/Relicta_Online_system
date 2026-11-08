@@ -121,6 +121,8 @@ export function rosterText(d,data) {
     return sections.join('\n\n');
 }
 
+export const IDENTITY_NOTE='[Real-world self — the same person in both worlds. GM-only background in every scene: let this life shape the avatar\'s habits, values, wounds and reactions in game scenes too. The real name, job, home and face stay confidential — never reveal, confirm or connect them to the game handle unless play has earned it]';
+
 export function renderScene(input,data) {
     const state=normalizeState(input,data);
     if(!state.enabled)return {state,prompt:'',profiles:[],privateIds:[],identityIds:[],kitIds:[],directory:null};
@@ -137,6 +139,11 @@ export function renderScene(input,data) {
             profile=profile.replace(/^.*\n/,'Known real-world person linked to '+c.name+' (GM continuity).\n');
             profile=profile.replace(/^Look:.*$/m,'Look: '+c.realLook);
             chunks.push(profile+'\n'+c.identity);
+            identityIds.push(cid);
+        }else if(c.identity) {
+            // Same person in both worlds: the real self is GM background in game scenes too, so later reveals never contradict play.
+            const linked=state.known.includes(cid)?' The player has already linked this avatar to the real person; keep that shared knowledge consistent, but others in the game still do not know.':'';
+            chunks.push(profile+'\n'+IDENTITY_NOTE+linked+(c.realLook?'\nReal appearance (reality only; the avatar look above applies in game): '+c.realLook:'')+'\n'+c.identity);
             identityIds.push(cid);
         }else chunks.push(profile);
         if(c.kit && ['combat','craft','rescue','research','explore'].includes(state.event)) {
