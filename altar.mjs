@@ -1,9 +1,9 @@
-// 오네이로스의 제단 · 숨은 추첨 대기열 (v0.8.14)
+// 오네이로스의 제단 · 숨은 추첨 대기열 (v0.8.15)
 // 모델 호출 없이 확장이 {{user}} 본인의 소환·룰렛 결과를 미리 정한다.
 // 세션에는 숨은 시드, 사용 횟수, 행운 보정 단계, 예외 기록만 저장하므로
 // 같은 입력의 재생성은 같은 결과를, 새 입력은 다음 결과를 받는다.
 export const GRADE_NAMES=['신급','상등급','노말','꽝'];
-// 행운 보정 6단계. 각 값은 [신급, 상등급, 노말] 확률이며 꽝은 나머지.
+// 행운 보정 7단계. 각 값은 [신급, 상등급, 노말] 확률이며 꽝은 나머지.
 export const LUCK=[
     null,
     {label:'1 · 기본',       odds:[8e-7,0.04,0.30]},   // 꽝 약 66% (원작 체감)
@@ -12,6 +12,7 @@ export const LUCK=[
     {label:'4 · 강운',       odds:[1e-4,0.25,0.45]},   // 꽝 약 30%
     {label:'5 · 금손',       odds:[5e-4,0.40,0.45]},   // 꽝 약 15%
     {label:'6 · 천운',       odds:[2e-3,0.55,0.42]},   // 꽝 약 2.8% · 설정상 꽝이 거의 안 나오는 캐릭터용
+    {label:'7 · 신애',       odds:[0.03,0.77,0.20]},   // 꽝 0% · 신의 사랑을 받는 운. 신급 3%
 ];
 export const BEAMS=['무지개빛','황금빛','보랏빛','푸른빛','흰빛','잿빛'];
 export const QUEUE_SIZE=10, MAX_DRAWS=20, LOG_SIZE=8;
@@ -27,7 +28,7 @@ export function newSeed(){
 }
 export function oddsOf(luck){
     const [d,u,n]=LUCK[tier(luck)].odds;
-    return {신급:d,상등급:u,노말:n,꽝:1-d-u-n};
+    return {신급:d,상등급:u,노말:n,꽝:Math.max(0,1-d-u-n)};
 }
 export function draw(seed,index,luck=1){
     const r=unit(seed,index,'grade'),[d,u,n]=LUCK[tier(luck)].odds;

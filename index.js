@@ -303,7 +303,7 @@ function fromUI(){
 let dirty=false;
 function diagReport(){
     const ctx=getContext(),ch=ctx.chat,i=assistantIndex(),m=ch[i],u=userIndex(i<0?ch.length:i),r=m?.extra?.relicta04,s=current();
-    return {ext:'0.8.14',chat:ch.length,ai:i,user:u,mesLen:m?.mes?.length??null,block:!!judgeSig(m?.mes),
+    return {ext:'0.8.15',chat:ch.length,ai:i,user:u,mesLen:m?.mes?.length??null,block:!!judgeSig(m?.mes),
         rec:r?{len:Number(String(r.hash).split(':')[1]),hasSig:!!r.sig,match:r.hash===fingerprint(m.mes)?'hash':sameText(r,m)?'sig':'none',error:r.error??null}:null,
         userRec:!!ch[u]?.extra?.relicta04_user,pending:!!ch[u]?.extra?.relicta09_pending,rev:s.rev,enabled:s.enabled,card:!!cardConfig(ctx),
         events:{bound:diag.bound,init:diag.init,interceptor:diag.interceptor,received:diag.received,lastReceived:diag.lastReceived},lastSync:diag.lastSync,lastSkip:diag.lastSkip,recovered:diag.recovered,
@@ -355,7 +355,7 @@ function mount(){
     const sum=element('summary',null),gem=element('span',null,{class:'ro-sum-gem','aria-hidden':'true'}),title=element('span',null,{class:'ro-sum-t'});
     gem.innerHTML='<svg viewBox="0 0 16 26"><polygon points="8,0 0,9 8,11" fill="currentColor" fill-opacity=".95"/><polygon points="8,0 16,9 8,11" fill="currentColor" fill-opacity=".55"/><polygon points="0,9 8,11 8,26" fill="currentColor" fill-opacity=".72"/><polygon points="16,9 8,11 8,26" fill="currentColor" fill-opacity=".32"/></svg>';
     title.append(element('b','Relicta Online'),element('small','플레이 세션 · 상태창 · 판정 기록'));
-    sum.append(gem,title,element('span','v0.8.14',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
+    sum.append(gem,title,element('span','v0.8.15',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
     body=element('div',null,{class:'ro-body'});panel.append(body);
     const sec=(en,ko)=>{const h=element('div',null,{class:'ro-sec'});h.append(element('b',en),element('span',ko));body.append(h);};
     sec('Session','세션');
@@ -413,7 +413,7 @@ function mount(){
 
 function command(_args,value){
     const parts=String(value??'').trim().split(/\s+/),verb=parts.shift()??'상태';let action;
-    if(['행운','luck'].includes(verb)){const n=Number(parts[0]);if(!Number.isInteger(n)||n<1||n>=LUCK.length)return '사용: /relicta 행운 1~6 (현재 '+luckOf(current())+'단계)';const s=current();setLuck(s,n);authorSet(s);return `행운 보정 ${LUCK[n].label} · ${oddsLine(n)}`;}
+    if(['행운','luck'].includes(verb)){const n=Number(parts[0]);if(!Number.isInteger(n)||n<1||n>=LUCK.length)return '사용: /relicta 행운 1~'+(LUCK.length-1)+' (현재 '+luckOf(current())+'단계)';const s=current();setLuck(s,n);authorSet(s);return `행운 보정 ${LUCK[n].label} · ${oddsLine(n)}`;}
     if(['연결','link'].includes(verb))return toggleList('known',parts.join(' '),true);
     if(['연결해제','unlink'].includes(verb))return toggleList('known',parts.join(' '),false);
     if(['심층','deep'].includes(verb))return toggleList('deep',parts.join(' '),true);
@@ -431,7 +431,7 @@ function command(_args,value){
     else if(['거절','decline'].includes(verb))action={type:'quest',id:parts[0],status:'declined'};
     else if(['동행','follow'].includes(verb))action={type:'follow',id:parts[0]};
     else if(['헤어짐','leave'].includes(verb))action={type:'leave',id:parts[0]};
-    if(!action)return '사용: /relicta 상태 | 진단 | 행운 1~6 | 연결 이름 | 연결해제 이름 | 심층 이름 | 심층해제 이름 | 로그아웃 | 접속 | 스탯 STR 2 | 수락 q_id | 사망 | 부활 일반/다이아/골드';
+    if(!action)return '사용: /relicta 상태 | 진단 | 행운 1~7 | 연결 이름 | 연결해제 이름 | 심층 이름 | 심층해제 이름 | 로그아웃 | 접속 | 스탯 STR 2 | 수락 q_id | 사망 | 부활 일반/다이아/골드';
     const result=runAction(action);notify(result);return result.ok?JSON.stringify(snapshot(result.state,data)):result.error;
 }
 
@@ -470,7 +470,7 @@ function bindEvents(){
         // Registration through the current ST context; no shell or external service is used.
         try{if(ctx.SlashCommandParser?.addCommandObject&&ctx.SlashCommand?.fromProps)ctx.SlashCommandParser.addCommandObject(ctx.SlashCommand.fromProps({name:'relicta',callback:command,splitUnnamedArgument:false,
             unnamedArgumentList:ctx.SlashCommandArgument?.fromProps?[ctx.SlashCommandArgument.fromProps({description:'동작과 인수',typeList:[ctx.ARGUMENT_TYPE?.STRING??'string'],isRequired:false})]:[],
-            helpString:'렐릭타 세션: 상태, 행운 보정(행운 1~6), 현실 신원 연결(연결/연결해제 이름), 심층 참고(심층/심층해제 이름), 로그아웃, 접속, 스탯, 퀘스트 수락, 사망·부활'}));
+            helpString:'렐릭타 세션: 상태, 행운 보정(행운 1~7), 현실 신원 연결(연결/연결해제 이름), 심층 참고(심층/심층해제 이름), 로그아웃, 접속, 스탯, 퀘스트 수락, 사망·부활'}));
         else if(ctx.registerSlashCommand)ctx.registerSlashCommand('relicta',command,[], '렐릭타 시험 세션 조작',true,true);}catch(e){console.warn('[Relicta] slash command',e);}
         globalThis.RelictaSession={getState:()=>copy(current()),action:runAction,importState:authorSet,exportState:()=>JSON.stringify(current(),null,2)};
         try{setPrompt(current());}catch{}safeRefresh();watchChat();
