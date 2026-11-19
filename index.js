@@ -7,6 +7,7 @@ import {unsealData} from './sealed.mjs';
 import {ensureAltar,altarOf,countGachaCards,consume,LUCK,luckOf,setLuck,oddsOf} from './altar.mjs';
 import {cleanNarrative,finalAIInstruction} from './st-presentation.mjs';
 import {dreamteoFromEntries,stripDreamteo,cleanHistory,withDreamteoPolicy,textDreamteoPolicy} from './presentation.mjs';
+import {setRelictaActive,onChatMutations} from './perf.mjs';
 import { initialSession, normalizeSession, world, fingerprint, parseProposal, applyProposal, authorAction, snapshot, renderSession, explicitUserAction, validateAuthorState } from './session.mjs';
 
 const KEY='relicta_session_v04',PROMPT='relicta_session_v04';
@@ -261,11 +262,12 @@ function paintStatus(){
 let painting=false,repaintTimer=null,observer=null;
 function watchChat(){
     const chat=document.querySelector?.('#chat');if(!chat||observer||typeof MutationObserver!=='function')return;
-    observer=new MutationObserver(()=>{if(painting||repaintTimer)return;repaintTimer=setTimeout(()=>{repaintTimer=null;try{if(!data||!current().enabled)return;const ch=getContext().chat,ai=assistantIndex(),m=ch[ai],ui=m?.extra?.relicta05_ui;if(ui?.ownsDisplay&&ui.base!==fingerprint(m.mes))applyDisplayPolicy(m,ai);if(!document.querySelector('.ro4-status-host'))paintStatus();}catch(e){console.warn('[Relicta] repaint',e);}},180);});
+    observer=new MutationObserver(records=>{try{onChatMutations(records);}catch(e){console.warn('[Relicta] style hoist',e);}if(painting||repaintTimer)return;repaintTimer=setTimeout(()=>{repaintTimer=null;try{if(!data||!current().enabled)return;const ch=getContext().chat,ai=assistantIndex(),m=ch[ai],ui=m?.extra?.relicta05_ui;if(ui?.ownsDisplay&&ui.base!==fingerprint(m.mes))applyDisplayPolicy(m,ai);if(!document.querySelector('.ro4-status-host'))paintStatus();}catch(e){console.warn('[Relicta] repaint',e);}},180);});
     observer.observe(chat,{childList:true,subtree:true});
 }
 function safeRefresh(){try{refresh();}catch(e){painting=false;diag.lastError='화면 갱신 오류: '+e.message;console.error('[Relicta] refresh failed',e);}}
 function refresh(){
+    try{setRelictaActive(!!data&&current().enabled);}catch(e){setRelictaActive(false);}
     paintStatus();if(!panel||!data)return;
     const s=current(),d=directory(s,data),r=s.enabled?renderAIRequest(s,data,rules,catalog):{state:s,prompt:''};
     get('enabled').checked=s.enabled;get('luck').value=String(luckOf(s));paintOdds(luckOf(s));paintConn(s);
@@ -303,7 +305,7 @@ function fromUI(){
 let dirty=false;
 function diagReport(){
     const ctx=getContext(),ch=ctx.chat,i=assistantIndex(),m=ch[i],u=userIndex(i<0?ch.length:i),r=m?.extra?.relicta04,s=current();
-    return {ext:'0.8.15',chat:ch.length,ai:i,user:u,mesLen:m?.mes?.length??null,block:!!judgeSig(m?.mes),
+    return {ext:'0.8.16',chat:ch.length,ai:i,user:u,mesLen:m?.mes?.length??null,block:!!judgeSig(m?.mes),
         rec:r?{len:Number(String(r.hash).split(':')[1]),hasSig:!!r.sig,match:r.hash===fingerprint(m.mes)?'hash':sameText(r,m)?'sig':'none',error:r.error??null}:null,
         userRec:!!ch[u]?.extra?.relicta04_user,pending:!!ch[u]?.extra?.relicta09_pending,rev:s.rev,enabled:s.enabled,card:!!cardConfig(ctx),
         events:{bound:diag.bound,init:diag.init,interceptor:diag.interceptor,received:diag.received,lastReceived:diag.lastReceived},lastSync:diag.lastSync,lastSkip:diag.lastSkip,recovered:diag.recovered,
@@ -355,7 +357,7 @@ function mount(){
     const sum=element('summary',null),gem=element('span',null,{class:'ro-sum-gem','aria-hidden':'true'}),title=element('span',null,{class:'ro-sum-t'});
     gem.innerHTML='<svg viewBox="0 0 16 26"><polygon points="8,0 0,9 8,11" fill="currentColor" fill-opacity=".95"/><polygon points="8,0 16,9 8,11" fill="currentColor" fill-opacity=".55"/><polygon points="0,9 8,11 8,26" fill="currentColor" fill-opacity=".72"/><polygon points="16,9 8,11 8,26" fill="currentColor" fill-opacity=".32"/></svg>';
     title.append(element('b','Relicta Online'),element('small','플레이 세션 · 상태창 · 판정 기록'));
-    sum.append(gem,title,element('span','v0.8.15',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
+    sum.append(gem,title,element('span','v0.8.16',{class:'ro-sum-v'}),element('span',null,{class:'ro-sum-cv','aria-hidden':'true'}));panel.append(sum);
     body=element('div',null,{class:'ro-body'});panel.append(body);
     const sec=(en,ko)=>{const h=element('div',null,{class:'ro-sec'});h.append(element('b',en),element('span',ko));body.append(h);};
     sec('Session','세션');

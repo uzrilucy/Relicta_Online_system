@@ -199,3 +199,13 @@
 
 /* v0.8.13 진단 정보 */
 .ro-panel .ro-diag{margin:0 0 8px}.ro-panel .ro-diag>summary{cursor:pointer;font-size:11px;opacity:.7;padding:2px 0}.ro-panel .ro-diag textarea{width:100%;box-sizing:border-box;margin-top:4px;padding:8px 10px;border-radius:8px;font:11px/1.45 ui-monospace,'D2Coding',Consolas,monospace;resize:vertical;user-select:text;-webkit-user-select:text}
+
+/* v0.8.16 · 긴 채팅 경량화: 마지막 메시지만 움직이고, 지난 메시지의 카드 연출은 멈춘 그림으로 둡니다. */
+body.ro-relicta #chat .mes:not(.last_mes) [data-ro6-kind],
+body.ro-relicta #chat .mes:not(.last_mes) [data-ro6-kind]::before,
+body.ro-relicta #chat .mes:not(.last_mes) [data-ro6-kind]::after,
+body.ro-relicta #chat .mes:not(.last_mes) [data-ro6-kind] *,
+body.ro-relicta #chat .mes:not(.last_mes) [data-ro6-kind] *::before,
+body.ro-relicta #chat .mes:not(.last_mes) [data-ro6-kind] *::after{animation:none!important;transition:none!important}
+body.ro-relicta #chat .mes:not(.last_mes) [data-ro6-kind] .custom-rl-gc-sp,
+body.ro-relicta #chat .mes:not(.last_mes) [data-ro6-kind] .rl-gc-sp{display:none!important}
