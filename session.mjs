@@ -135,7 +135,8 @@ export function applyProposal(input,proposal,data) {
         if(!record(m)||!participants.has(m.id))continue;
         const prev=s.relations[m.id]??{stage:'seen',note:''};
         const oldIndex=RELATION_STAGES.indexOf(prev.stage),newIndex=RELATION_STAGES.indexOf(m.stage);
-        const stage=newIndex>=oldIndex&&newIndex<=oldIndex+1?RELATION_STAGES[newIndex]:prev.stage;
+        // v0.8.19: 한 번에 몇 단계든 오르내릴 수 있다. 모르는 단계 이름만 무시한다.
+        const stage=newIndex>=0?RELATION_STAGES[newIndex]:prev.stage;void oldIndex;
         s.relations[m.id]={stage,note:typeof m.note==='string'?text(m.note,140):prev.note};
     }
     for(const q of (Array.isArray(proposal.quests)?proposal.quests:[]).slice(0,3)) {

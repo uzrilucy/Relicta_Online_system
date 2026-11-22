@@ -42,8 +42,8 @@ export function derived(input,rules,catalog){
     const gear=Object.values(s.systems.equipment).map(id=>itemOf(s,catalog,id)).filter(Boolean);
     const weapon=itemOf(s,catalog,s.systems.equipment.weapon);
     const sen=st.SEN+gear.reduce((n,i)=>n+(i.sen??0),0);
-    return {hp:rules.hpBase+st.CON*rules.hpPerCon+(L-1)*rules.hpPerLevel,
-        mp:rules.mpBase+st.INT*rules.mpPerInt+(L-1)*rules.mpPerLevel,
+    return {hp:Math.round((rules.hpBase+st.CON*rules.hpPerCon+(L-1)*rules.hpPerLevel)*(1+st.CON*(rules.hpPctPerCon??0))),
+        mp:Math.round((rules.mpBase+st.INT*rules.mpPerInt+(L-1)*rules.mpPerLevel)*(1+st.INT*(rules.mpPctPerInt??0))),
         attack:rules.attackBase+st.STR*rules.attackPerStr+(weapon?.attack??0),defense:gear.reduce((n,i)=>n+(i.defense??0),0),
         reduction:Math.min(rules.agiReductionCap,st.AGI/(st.AGI+rules.agiReductionScale)),
         evasion:Math.min(rules.evasionCap,st.AGI/(st.AGI+rules.evasionScale)),

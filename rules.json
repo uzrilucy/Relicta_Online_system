@@ -3,11 +3,11 @@
   "status": "새 수치 산식·세부 확률은 조정 가능한 구현 초안. 기존 확정 설정과 구분한다.",
   "expFactor": 50,
   "hpBase": 100,
-  "hpPerCon": 12,
-  "hpPerLevel": 5,
-  "mpBase": 40,
-  "mpPerInt": 8,
-  "mpPerLevel": 3,
+  "hpPerCon": 15,
+  "hpPerLevel": 20,
+  "mpBase": 50,
+  "mpPerInt": 10,
+  "mpPerLevel": 10,
   "attackBase": 8,
   "attackPerStr": 2,
   "agiReductionScale": 100,
@@ -61,5 +61,7 @@
   "reviveGold": 10000000,
   "levelDownPolicy": "retain-earned-points-no-repeat-grants",
   "maxBatchPulls": 10,
-  "auctionTax": 0.3
+  "auctionTax": 0.3,
+  "hpPctPerCon": 0.01,
+  "mpPctPerInt": 0.01
 }
